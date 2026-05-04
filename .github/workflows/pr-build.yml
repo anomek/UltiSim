@@ -1,4 +1,4 @@
-name: Sample PR Builder for SamplePlugin
+name: Sample PR Builder for UltiSim
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ jobs:
     runs-on: windows-2022
 
     env:
-      Solution_Name: SamplePlugin
+      Solution_Name: UltiSim
 
     steps:
     - name: Checkout
@@ -32,8 +32,8 @@ jobs:
     - name: Store artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: SamplePlugin
-        path: .\SamplePlugin\bin\x64\Release\SamplePlugin\*
+        name: UltiSim
+        path: .\UltiSim\bin\x64\Release\UltiSim\*
         if-no-files-found: error
         retention-days: 1
 

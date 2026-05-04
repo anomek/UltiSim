@@ -1,7 +1,7 @@
 ﻿using Dalamud.Configuration;
 using System;
 
-namespace SamplePlugin;
+namespace UltiSim;
 
 [Serializable]
 public class Configuration : IPluginConfiguration

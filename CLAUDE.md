@@ -1,0 +1,43 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+UltiSim is a Dalamud plugin that **simulates FFXIV ultimate-raid mechanics client-side** — it spawns fake `BattleChara` instances (party doppels and bosses) into the live game, drives their actions, and renders the canonical VFX/cast bars/tethers so players can practice mechanics solo. It is NOT the SamplePlugin template the README still describes; only the project skeleton was inherited.
+
+The reference scenario is **TOP P5 Delta** (`Scenarios/TopP5Delta/`). Treat it as the canonical example of how a scenario consumes the engine — when designing new APIs, look at how it would read there.
+
+## Build / run
+
+- Build: `dotnet build` from `D:/Projects/ffxiv/UltiSim/UltiSim/`. Output is `bin/Debug/UltiSim.dll`.
+- The csproj uses `Dalamud.NET.Sdk/15.0.0` — Dalamud SDK resolves at build time from `%AppData%/XIVLauncher/addon/Hooks/dev/`. No NuGet restore tweaks are needed.
+- **There are no automated tests.** Verification is "build clean → load DLL via Dalamud Dev Plugins → run a scenario in-game and watch." For UI / behavior changes, ask the user to run the plugin; you cannot.
+- In-game entry point: chat command `/pmycommand` opens the main window. Buttons there run scenarios and despawn/reset.
+
+## Architecture
+
+### Frame loop
+`Plugin.OnFrameworkUpdate` → `Game.Tick(dt)` → `SimWorld.Tick(dt)` → ticks `EventScheduler` (scaled by `EventTimeScale`), then each `SimEnemy`, `SimParty` (which ticks each `SimPartyMember`), `LocalPlayerOps`, each `SimTether`, then refreshes `EnmityHud` and `PartyHud`. Everything runs on the Framework thread.
+
+### Two-layer Core
+
+**`Core/SimObjects/`** — in-world entities. All implement `ISimObject` (`bool IsAlive`, `Tick(float)`, `Despawn()`); position-bearing ones implement `IPositioned`. The contract and design rules live in the header comment of `ISimObject.cs` — read it before adding a new SimObject type. Core types: `SimWorld` (root), `SimNpc` (base wrapper around a `BattleChara*`), `SimEnemy : SimNpc` (cast bars, action timeline), `SimPartyMember : SimNpc` (CharacterManager registration), `SimParty` (8-slot container), `SimTether` (effect with auto-expire). **Spawn through the parent** (`SimWorld.SpawnEnemy`, `SimWorld.InitializeParty`, `SimWorld.Tether`) — never `new` these from outside.
+
+**`Core/` (root)** — helpers. Engine plumbing that is *not* a game object: `VfxFunctions` (signature-scanned native VFX/tether functions), `Statuses` (direct `StatusManager` writes that bypass server packets), `PinnedStatus` / `TimedStatus` (status-lifetime helpers re-stamped each tick), `LocalPlayerOps` (VFX/status on the real local player), `PartyHud` / `EnmityHud` (mirror SimObjects state into game UI addons via `AddonLifecycle.PreRequestedUpdate`), `EventScheduler`, `TetherTarget` (unifies `SimNpc` and the local player), `PartyMemberOrPlayer` (lets scenarios address all 8 slots uniformly with player-fallback), `MathUtil`, `PartyPresets`, `Waymarks`. These do NOT go in SimObjects.
+
+### Scenarios
+`Scenarios/IScenario.cs` is the contract: `Run(SimWorld, PartyRole)`. `Game.RunScenario` wires up origin snapshot, party init, waymarks, then invokes `Run`. A scenario typically declares its event timeline via `world.Events.Add(offset, action)` — the EventScheduler then fires each lambda at the scheduled time. The TOP P5 Delta scenario is split into `TopP5DeltaScenario` (event timeline + spawns + casts), `TopP5DeltaAi` (party-member movement choreography), `TopP5DeltaState` (per-run randomization), `TopP5DeltaConstants` (BNpc / action / status / tether IDs), `TopP5DeltaSettingsWindow` + `TopP5DeltaStateOverrides` (debug overrides).
+
+### Heavy native interop
+Most SimObject code is `unsafe` and walks `FFXIVClientStructs` types directly (`BattleChara*`, `GameObject*`, `StatusManager`, `CastInfo`, `Timeline`, `DrawData`, `CharacterManager`, `ClientObjectManager`, `GroupManager.MainGroup`, `UIState.Hate/Hater`, `AgentHUD`, `AtkArrayData`). When you need to know what a field does, prefer the local checkouts (see `~/.claude/projects/D--Projects-ffxiv-UltiSim/memory/MEMORY.md` references) over websearch.
+
+## Non-obvious things to know before changing engine code
+
+- **Dual registration is required for HUD visibility.** Spawned BattleCharas must be inserted into both `ClientObjectManager` (which `SimNpc` does via `CreateBattleCharacter`) AND `CharacterManager._battleCharas` (which `SimPartyMember.RegisterInCharacterManager` does, called from `SimWorld.SpawnPartyMember`). Without the second registration the party-list and enemy-list addons cannot resolve the entity and will misroute every slot to a single fallback BC. This array is shared with all nearby BattleCharas — the plugin only works reliably in low-density zones.
+- **Status countdowns drift on dual-registered party members.** They get ticked twice per frame because they live in both arrays. `PinnedStatus` re-stamps `RemainingTime = -1f` each frame; `TimedStatus` and `SimTether` re-stamp the visible counter against their own elapsed time. Don't trust the engine's StatusManager decrement.
+- **Cast bars are entirely simulated.** `SimEnemy.Cast` writes `CastInfo` directly and ticks `CurrentCastTime` itself; on completion it manually fires an `ActionEffectHandler.Receive` with a synthetic header (mimicking the server's ActionEffect packet) so the release animation/VFX play. Bypassing `Character::StartCast` means the AOE telegraph (omen) is never auto-spawned — `SpawnCastOmen` reads `Action.Omen.Path` and spawns a StaticVfx manually.
+- **Bad VFX paths crash on the file thread.** Always validate via `Plugin.DataManager.FileExists` before calling any `VfxFunctions.Spawn*` — `SimNpc.AddVfx` and `SimEnemy.SpawnCastOmen` already do this.
+- **Movement requires both `SetPosition` and a timeline override.** Direct field writes only move the hitbox/nameplate; the visible model needs `SetPosition` (propagates to DrawObject) + `Timeline.BaseOverride = 22` (run loop) for the model to actually animate. See `SimNpc.MoveTo` / `StartMoveAnim`.
+- **`Game` is the orchestrator, `SimWorld` is the root SimObject.** `Game` lives in `Core/` (not `SimObjects/`) because it's not an in-world entity — it owns the World and holds the scenario catalog. `SimWorld.Despawn()` is implemented as an explicit interface method that forwards to `Reset()` (kept separate from `Dispose()` because `Reset` is reusable teardown between scenarios).
+- **`EventTimeScale` only scales the `EventScheduler`.** Cast bars, animations, movement, and status ticks all run at real time. The Speed buttons in `MainWindow` set `EventTimeScale` so a scenario's timeline can be sped up without breaking visible animation timing.
