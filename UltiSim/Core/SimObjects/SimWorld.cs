@@ -17,6 +17,7 @@ public sealed class SimWorld : ISimObject, IDisposable
     // Ownership
     private readonly List<ISimObject> children = new();
     private readonly EnmityHud enmityHud = new();
+    private readonly PartyHud partyHud = new();
 
     // Zone loading and map effects entry point.
     public MapController Map { get; } = new();
@@ -77,6 +78,11 @@ public sealed class SimWorld : ISimObject, IDisposable
     public SimParty CreateParty(uint playerJob)
     {
         var party = new SimParty();
+        // No CharacterManager registration anywhere — we drove all addon output
+        // (icons, timer text, Targetable) through PartyHud's NumberArray writes
+        // and direct text-node stamping during PreRequestedUpdate. Click
+        // targeting and mouseover tooltips don't resolve back to doppels (they
+        // need a real CharacterManager entry); accepted limitation.
         PartyCreator.Populate(party, new SimPlayer(), playerJob, ScenarioOrigin);
         children.Add(party);
         Party = party;
@@ -92,6 +98,7 @@ public sealed class SimWorld : ISimObject, IDisposable
         var count = children.Count;
         for (int i = 0; i < count; i++) children[i].Tick(deltaSeconds);
         enmityHud.Refresh(children.OfType<SimEnemy>());
+        partyHud.Refresh(Party);
     }
 
     public void Reset()
@@ -104,6 +111,7 @@ public sealed class SimWorld : ISimObject, IDisposable
         children.Clear();
         Party = SimParty.Empty;
         enmityHud.Clear();
+        partyHud.Clear();
         ScenarioOrigin = default;
     }
 
@@ -115,6 +123,7 @@ public sealed class SimWorld : ISimObject, IDisposable
     {
         Reset();
         enmityHud.Dispose();
+        partyHud.Dispose();
         Map.Dispose();
     }
 }

@@ -14,13 +14,6 @@ public sealed unsafe class SimPartyMember : SimNpc
         DisplayName = name;
     }
 
-    public override void Despawn()
-    {
-        var bc = BattleCharaPtr;
-        if (bc != null) UnregisterFromCharacterManager(bc);
-        base.Despawn();
-    }
-
     private float deadElapsed;
 
     internal override void OnKilled()
@@ -61,23 +54,4 @@ public sealed unsafe class SimPartyMember : SimNpc
         if (ch->Mode != CharacterModes.Dead) ch->Mode = CharacterModes.Dead;
     }
 
-    internal static void RegisterInCharacterManager(BattleChara* chara)
-    {
-        var cm = CharacterManager.Instance();
-        if (cm == null || chara == null) return;
-        var arr = cm->BattleCharas;
-        for (int i = 0; i < arr.Length; i++)
-            if (arr[i].Value == chara) return;
-        for (int i = 0; i < arr.Length; i++)
-            if (arr[i].Value == null) { arr[i] = chara; return; }
-    }
-
-    internal static void UnregisterFromCharacterManager(BattleChara* chara)
-    {
-        var cm = CharacterManager.Instance();
-        if (cm == null || chara == null) return;
-        var arr = cm->BattleCharas;
-        for (int i = 0; i < arr.Length; i++)
-            if (arr[i].Value == chara) { arr[i] = (BattleChara*)null; return; }
-    }
 }

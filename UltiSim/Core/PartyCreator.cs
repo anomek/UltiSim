@@ -103,8 +103,6 @@ internal static unsafe class PartyCreator
             chara->CurrentWorld = localChara->CurrentWorld;
         }
 
-        SimPartyMember.RegisterInCharacterManager(chara);
-
         Plugin.Log.Info($"PartyCreator: spawned {preset.Name} ({role}, job {preset.ClassJob}) at index {idx}");
         return new SimPartyMember(idx, role, preset.ClassJob, preset.Name);
     }

@@ -6,15 +6,14 @@ namespace UltiSim.Core.SimObjects;
 // SimPartyMember (spawned NPC) or the SimPlayer (the player's own role).
 // Get(role) returns the SimPartySlot at the slot or null when unfilled.
 //
-// Owns its own PartyHud mirror: any slot mutation (SetSlot) flips a dirty
-// flag, and the next Tick refreshes the HUD. Despawn clears the HUD
-// directly. Dispose unregisters the AddonLifecycle listener for plugin teardown.
+// HUD mirroring is owned by SimWorld (not SimParty) — see SimWorld.partyHud —
+// so the addon-lifecycle listener has the same lifespan as the plugin and the
+// SimParty.Empty sentinel doesn't accidentally register one at static init.
 public sealed class SimParty : ISimObject
 {
     public static readonly SimParty Empty = new();
 
     private readonly SimPartySlot?[] slots = new SimPartySlot?[8];
-    private readonly PartyHud partyHud = new();
 
     public SimParty() { Find = new CharacterFind<SimPartySlot>(ActiveMembers); }
 
@@ -89,10 +88,6 @@ public sealed class SimParty : ISimObject
             if (slots[i] is null) continue;
             slots[i]!.Tick(deltaSeconds);
         }
-        // Refresh every tick: per-member state (HP=0 on death, HP changes if we
-        // ever simulate damage) needs to propagate without us tracking every
-        // mutation. Refresh internally early-outs when there's nothing to write.
-        partyHud.Refresh(this);
     }
 
     public void Despawn()
@@ -102,6 +97,5 @@ public sealed class SimParty : ISimObject
             slots[i]?.Despawn();
             slots[i] = null;
         }
-        partyHud.Clear();
     }
 }
