@@ -1,6 +1,6 @@
 using Dalamud.Bindings.ImGui;
 
-namespace UltiSim.Scenarios.TopP5Delta;
+namespace UltiSim.Scenarios.Top.P5Delta;
 
 public sealed class TopP5DeltaSettingsWindow
 {

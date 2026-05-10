@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.Numerics;
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
+using FFXIVClientStructs.FFXIV.Client.UI;
 using UltiSim.Core.Map;
 using UltiSim.Core.SimObjects;
 using UltiSim.Scenarios;
-using UltiSim.Scenarios.TopP5Delta;
+using UltiSim.Scenarios.Top.P5Delta;
+using UltiSim.Scenarios.Top.P5Sigma;
 
 namespace UltiSim.Core;
 
@@ -41,6 +43,7 @@ public sealed class Game : IDisposable
     private IScenario? activeScenario;
     private float scenarioElapsed;
     private bool firstDeathScheduled;
+    private bool firstFreezeScheduled;
     private readonly OpcodeUpdater opcodeUpdater;
 
     public Game()
@@ -51,6 +54,7 @@ public sealed class Game : IDisposable
         Scenarios = new IScenario[]
         {
             new TopP5DeltaScenario(),
+            new TopP5SigmaScenario(),
         };
     }
 
@@ -113,38 +117,56 @@ public sealed class Game : IDisposable
         }
     }
 
-    // Single entry point for "this character died". Posts the cause to chat
-    // unconditionally (the user wants the message even in godmode for
-    // learning), then in non-godmode runs the per-subclass side effects and,
-    // on the very first death, schedules a 5s freeze so the corpse pose is
-    // readable before the run halts.
+    // Single entry point for "this character died". Always posts the cause
+    // to chat and, on the first call of a run, fires the on-screen overlay
+    // — both happen even in godmode so the user can learn what would have
+    // killed them. Gameplay side effects (Dead/OnKilled, 5s freeze) only
+    // run outside godmode; the freeze fires once per run on the first
+    // non-godmode death.
     public void Kill(SimCharacter target, string cause)
     {
         if (target == null) return;
-        if (GodMode) return;
         if (target.Dead) return;
+
         PrintDeath(target, cause);
+        if (!firstDeathScheduled)
+        {
+            firstDeathScheduled = true;
+            ShowFirstDeathOverlay(target, cause);
+        }
+
+        if (GodMode) return;
         target.Dead = true;
         target.OnKilled();
-        if (firstDeathScheduled) return;
-        firstDeathScheduled = true;
-        Events.Add(5f, () => Paused = true);
+        if (!firstFreezeScheduled)
+        {
+            firstFreezeScheduled = true;
+            Events.Add(5f, () => Paused = true);
+        }
     }
 
     private static void PrintDeath(SimCharacter target, string cause)
     {
-        var name = target switch
-        {
-            SimPlayer => "You",
-            SimPartyMember pm => pm.DisplayName,
-            SimEnemy se => se.DisplayName,
-            _ => "Character",
-        };
         Plugin.ChatGui.Print(new XivChatEntry
         {
             Type = XivChatType.SystemMessage,
-            Message = new SeStringBuilder().AddText($"[UltiSim] {name} died: {cause}").Build(),
+            Message = new SeStringBuilder().AddText($"[UltiSim] {DescribeName(target)} died: {cause}").Build(),
         });
+    }
+
+    private static string DescribeName(SimCharacter target) => target switch
+    {
+        SimPlayer => "You",
+        SimPartyMember pm => pm.DisplayName,
+        SimEnemy se => se.DisplayName,
+        _ => "Character",
+    };
+
+    private static unsafe void ShowFirstDeathOverlay(SimCharacter target, string cause)
+    {
+        var ui = UIModule.Instance();
+        if (ui == null) return;
+        ui->ShowErrorText($"{DescribeName(target)} died: {cause}", true);
     }
 
     public void Reset() => Plugin.Framework.Run(ResetInternal);
@@ -170,6 +192,7 @@ public sealed class Game : IDisposable
 
         Paused = false;
         firstDeathScheduled = false;
+        firstFreezeScheduled = false;
         PlayerInputHooks.DisableAllActions = false;
         PlayerInputHooks.ZeroMovement = false;
     }

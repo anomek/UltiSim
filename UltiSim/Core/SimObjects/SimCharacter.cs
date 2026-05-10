@@ -22,7 +22,6 @@ public abstract unsafe class SimCharacter : ISimObject, IPositioned
 
     internal abstract BattleChara* BattleCharaPtr { get; }
     public abstract GameObjectId GameObjectId { get; }
-    public abstract uint EntityId { get; }
     public abstract Vector3 Position { get; }
     public abstract float Rotation { get; }
     public abstract float HitboxRadius { get; }

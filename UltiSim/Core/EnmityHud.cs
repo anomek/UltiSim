@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
+using FFXIVClientStructs.FFXIV.Client.UI.Arrays;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using UltiSim.Core.SimObjects;
 using Action = Lumina.Excel.Sheets.Action;
@@ -20,20 +21,21 @@ namespace UltiSim.Core;
 //
 // Writing the addon arrays directly avoids the resolver lookup entirely. The
 // addon doesn't care that the EntityId doesn't resolve to a real BC — it just
-// renders whatever we put in the slots.
-//
-// Number array layout (EnemyListNumberArray): 5-int header, then 8 × 6-int rows:
-//   header[0] Unk0, [1] EnemyCount, [2] TargetEntityId, [3] UnkEntityId, [4] Unk4
-//   row[i] base = 5 + i*6: [+0] HP%, [+1] MaxHP%, [+2] Cast%, [+3] EntityId,
-//          [+4] ActiveInList (bool-as-int), [+5] Unk5
-// String array layout (EnemyListStringArray): 8 × 2 strings, base i*2:
-//   [+0] EnemyName, [+1] CastName
+// renders whatever we put in the slots. Layout comes from the typed
+// EnemyListNumberArray / EnemyListStringArray wrappers in FFXIVClientStructs.
 internal sealed unsafe class EnmityHud : IDisposable
 {
     private const int EnemyListSize = 8;
     private const string AddonName = "_EnemyList";
 
+    // Within EnemyListStringArray each member is { EnemyName at +0, Castname at +1 }.
+    // String writes have to go through StringArrayData.SetValue (managed: true) so
+    // the engine owns the byte buffer; we can't assign CStringPointer fields directly.
+    private const int StrEnemyName = 0;
+    private const int StrCastname = 1;
+
     private readonly SimEnemy?[] slotEnemies = new SimEnemy?[EnemyListSize];
+    private bool wasActive;
 
     public EnmityHud()
     {
@@ -59,9 +61,22 @@ internal sealed unsafe class EnmityHud : IDisposable
             if (!e.IsAlive) continue;
             slotEnemies[written++] = e;
         }
+
+        // The PreRequestedUpdate hook only fires when the engine sees a
+        // subscribed array dirty (UpdateState != 0). Without this nudge the
+        // addon stays empty until something else (e.g. the player selecting
+        // an enemy) dirties Hate/Hater. Keep nudging for one frame after
+        // slots empty so the listener clears our last-written rows.
+        var nowActive = written > 0;
+        if (nowActive || wasActive) MarkArraysDirty();
+        wasActive = nowActive;
     }
 
-    public void Clear() => Array.Clear(slotEnemies);
+    public void Clear()
+    {
+        Array.Clear(slotEnemies);
+        wasActive = false;
+    }
 
     private void OnPreRequestedUpdate(AddonEvent type, AddonArgs args)
     {
@@ -80,6 +95,8 @@ internal sealed unsafe class EnmityHud : IDisposable
         var numArr = numArrays[(int)NumberArrayType.EnemyList];
         var strArr = strArrays[(int)StringArrayType.EnemyList];
         if (numArr == null || strArr == null) return;
+        var enemyArr = (EnemyListNumberArray*)numArr->IntArray;
+        if (enemyArr == null) return;
 
         var actionSheet = Plugin.DataManager.GetExcelSheet<Action>();
 
@@ -90,7 +107,7 @@ internal sealed unsafe class EnmityHud : IDisposable
             var e = slotEnemies[i];
             if (e is null || !e.IsAlive)
             {
-                WriteEmptyRow(numArr, strArr, i);
+                WriteEmptyRow(ref enemyArr->Enemies[i], strArr, i);
                 continue;
             }
 
@@ -107,35 +124,40 @@ internal sealed unsafe class EnmityHud : IDisposable
                     castName = action.Name.ExtractText() ?? string.Empty;
             }
 
-            var rowBase = 5 + i * 6;
-            numArr->SetValue(rowBase + 0, 100); // HP%
-            numArr->SetValue(rowBase + 1, 100); // MaxHP%
-            numArr->SetValue(rowBase + 2, castPercent);
-            numArr->SetValue(rowBase + 3, entityId);
-            numArr->SetValue(rowBase + 4, 1); // ActiveInList
-            numArr->SetValue(rowBase + 5, 0);
+            ref var enemy = ref enemyArr->Enemies[i];
+            enemy.RemainingHPPercent = 100;
+            enemy.MaxHPPercent = 100;
+            enemy.CastPercent = castPercent;
+            enemy.EntityId = entityId;
+            enemy.ActiveInList = true;
 
-            var strBase = i * 2;
-            strArr->SetValue(strBase + 0, e.DisplayName, managed: true);
-            strArr->SetValue(strBase + 1, castName, managed: true);
+            strArr->SetValue(i * 2 + StrEnemyName, e.DisplayName, managed: true);
+            strArr->SetValue(i * 2 + StrCastname, castName, managed: true);
         }
 
-        numArr->SetValue(1, activeCount);
-        numArr->SetValue(2, firstEntityId);
+        enemyArr->EnemyCount = activeCount;
+        enemyArr->TargetEntityId = firstEntityId;
     }
 
-    private static void WriteEmptyRow(NumberArrayData* numArr, StringArrayData* strArr, int i)
+    private static void MarkArraysDirty()
     {
-        var rowBase = 5 + i * 6;
-        numArr->SetValue(rowBase + 0, 0);
-        numArr->SetValue(rowBase + 1, 0);
-        numArr->SetValue(rowBase + 2, -1);
-        numArr->SetValue(rowBase + 3, 0);
-        numArr->SetValue(rowBase + 4, 0);
-        numArr->SetValue(rowBase + 5, 0);
+        var holder = AtkStage.Instance()->AtkArrayDataHolder;
+        if (holder == null) return;
+        var numArr = holder->GetNumberArrayData((int)NumberArrayType.EnemyList);
+        var strArr = holder->GetStringArrayData((int)StringArrayType.EnemyList);
+        if (numArr != null) numArr->UpdateState = 1;
+        if (strArr != null) strArr->UpdateState = 1;
+    }
 
-        var strBase = i * 2;
-        strArr->SetValue(strBase + 0, string.Empty, managed: true);
-        strArr->SetValue(strBase + 1, string.Empty, managed: true);
+    private static void WriteEmptyRow(ref EnemyListNumberArray.EnemyListEnemyNumberArray enemy, StringArrayData* strArr, int i)
+    {
+        enemy.RemainingHPPercent = 0;
+        enemy.MaxHPPercent = 0;
+        enemy.CastPercent = -1;
+        enemy.EntityId = 0;
+        enemy.ActiveInList = false;
+
+        strArr->SetValue(i * 2 + StrEnemyName, string.Empty, managed: true);
+        strArr->SetValue(i * 2 + StrCastname, string.Empty, managed: true);
     }
 }

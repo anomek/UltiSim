@@ -33,18 +33,24 @@ public sealed class SimWorld : ISimObject, IDisposable
         Events = events;
     }
 
-    // Sets a bidirectional tether between two targets and tracks it for cleanup.
-    // duration > 0 makes the tether self-expire on its own elapsed counter (driven
-    // by SimWorld.Tick); Reset also clears it so a mid-scenario abort can't leave VFX
-    // dangling on still-alive party members or the local player. debuffStatusId
-    // optionally stamps a matching status on both ends, removed in lockstep.
     public SimTether Tether(SimCharacter a, SimCharacter b, ushort tetherId, float duration = 0f, ushort debuffStatusId = 0)
+    {
+        return Tether(a, () => b, tetherId, duration, debuffStatusId);
+    }
+
+    public SimTether TetherFarestPlayer(SimCharacter a, ushort tetherId, float duration = 0f, ushort debuffStatusId = 0)
+    {
+        return Tether(a, () => Party.Find.Farest(a.Position)!, tetherId, duration, debuffStatusId);
+    }
+    
+    public SimTether Tether(SimCharacter a, Func<SimCharacter> b, ushort tetherId, float duration = 0f, ushort debuffStatusId = 0)
     {
         var tether = new SimTether(a, b, tetherId, debuffStatusId, duration);
         children.Add(tether);
         return tether;
     }
 
+    
     public SimEnemy? SpawnEnemy(EnemySpawnConfig config)
     {
         var enemy = SimEnemy.Spawn(config, ScenarioOrigin, Events);
@@ -78,11 +84,13 @@ public sealed class SimWorld : ISimObject, IDisposable
     public SimParty CreateParty(uint playerJob)
     {
         var party = new SimParty();
-        // No CharacterManager registration anywhere — we drove all addon output
-        // (icons, timer text, Targetable) through PartyHud's NumberArray writes
-        // and direct text-node stamping during PreRequestedUpdate. Click
-        // targeting and mouseover tooltips don't resolve back to doppels (they
-        // need a real CharacterManager entry); accepted limitation.
+        // PartyHud always drives addon output (icons, timer text, Targetable)
+        // via NumberArray writes + direct text-node stamping. PartyCreator
+        // additionally inserts doppels into CharacterManager._battleCharas
+        // when the player is in an inn or any duty (low BC density, controlled
+        // contexts), enabling row-click targeting and mouseover tooltips
+        // there; in the open world we keep them out to avoid the render-cache
+        // teardown crash documented in EnmityHud.cs.
         PartyCreator.Populate(party, new SimPlayer(), playerJob, ScenarioOrigin);
         children.Add(party);
         Party = party;

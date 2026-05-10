@@ -1,4 +1,4 @@
-namespace UltiSim.Scenarios.TopP5Delta;
+namespace UltiSim.Scenarios.Top.P5Delta;
 
 public enum PlayerTetherAssignment { Auto, CloseAny, CloseInner, CloseOuter, FarAny, FarInner, FarOuter }
 public enum TriOption { Auto, Yes, No }

@@ -43,7 +43,7 @@ public unsafe class SimNpc : SimPartySlot
         chara->Timeline.PlayActionTimeline(timelineId);
     }
 
-    public override uint EntityId
+    public uint EntityId
     {
         get
         {

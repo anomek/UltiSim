@@ -6,9 +6,9 @@ using UltiSim.Core;
 using UltiSim.Core.Map;
 using UltiSim.Core.SimObjects;
 using UltiSim.Scenarios;
-using static UltiSim.Scenarios.TopP5Delta.TopP5DeltaConstants;
+using static UltiSim.Scenarios.Top.P5Delta.TopP5DeltaConstants;
 
-namespace UltiSim.Scenarios.TopP5Delta;
+namespace UltiSim.Scenarios.Top.P5Delta;
 
 public sealed class TopP5DeltaScenario : IScenario
 {
@@ -25,8 +25,8 @@ public sealed class TopP5DeltaScenario : IScenario
         new(TerritoryId: 1045, X: 0f, Z: 0)
     ];
     public IReadOnlyList<uint> HiddenBaseIds { get; } = [BNpcBaseId.AlphaShield];
-    public IReadOnlyList<Waymark> Waymarks { get; } = WaymarkPresets.Ring(13.63f);
-    public ushort Bgm => BgmId.TopP5;
+    public IReadOnlyList<Waymark> Waymarks { get; } = TopUtils.TopWaymarks;
+    public ushort Bgm => TopConstants.BgmId.TopP5;
     public void DrawSettings() => settingsWindow.Draw();
     private readonly TopP5DeltaSettingsWindow settingsWindow = new();
 
@@ -54,12 +54,12 @@ public sealed class TopP5DeltaScenario : IScenario
         ai = new TopP5DeltaAi(state);
         ai.Run(world);
 
-        world.EnforceArenaBoundary(Geometry.ArenaRadius);
+        world.EnforceArenaBoundary(TopConstants.Geometry.ArenaRadius);
 
         // Replay the server MapEffect IPC that sets up the TOP arena for P5.
         // Only has visible effect when physically inside TOP (ContentDirector must exist
         // with the territory's layout rows loaded). Safe to call elsewhere — no-ops.
-        world.Events.Add(2f, InitTopArena);
+        world.Events.Add(1f, () => TopUtils.InitTopArena(world));
 
         // Scenario timeline. Don't add events anywhere else unless there is no other way around it
         // Use absolute values for offsets.
@@ -75,12 +75,12 @@ public sealed class TopP5DeltaScenario : IScenario
         world.Events.Add(44f, EyeDespawn);
         world.Events.Add(7f, () => omega?.SetTargetable(false));
         world.Events.Add(10.1f, ApplyDeltaTethers);           // HW debuffs confirmed at t=10.053s
-        world.Events.Add(11f, () => omega?.PlayActionTimeline(TimelineId.WarpOut));
+        world.Events.Add(11f, () => omega?.PlayActionTimeline(TopConstants.TimelineId.WarpOut));
         world.Events.Add(11f, SpawnDeltaAdds);
         world.Events.Add(17.3f, SpawnRocketPunches);          // Peripheral Synthesis fires t=17.31s
         world.Events.Add(20.3f, SpawnArmUnits);               // Archive Peripheral fires t=20.30s
         world.Events.Add(21.3f, MarkArmUnitRotations);        // +1s after arm spawn
-        world.Events.Add(28.9f, () => omega?.PlayActionTimeline(TimelineId.Spawn));
+        world.Events.Add(28.9f, () => omega?.PlayActionTimeline(TopConstants.TimelineId.Spawn));
         world.Events.Add(28.1f, ApplyDeltaRealTethers); // same window as optical laser
         world.Events.Add(30.2f, ResolveOpticalLaser);   // Optical Laser fires t=30.205s
         world.Events.Add(30.5f, StartMonitors);         // BeyondDefense + OWC casts start t=30.43/30.47s
@@ -99,20 +99,20 @@ public sealed class TopP5DeltaScenario : IScenario
         world.Events.Add(41.0f, NextHyperPulse);              // last HP step, same tick as pile pitch t=40.999s
         world.Events.Add(41.0f, FirePilePitch);               // Pile Pitch fires t=40.999s
         world.Events.Add(41.1f, ResolvePilePitch);
-        world.Events.Add(41.5f, () => armUnits?.ForEach(unit => unit?.Despawn(TimelineId.WarpOut, 1f)));
+        world.Events.Add(41.5f, () => armUnits?.ForEach(unit => unit?.Despawn(TopConstants.TimelineId.WarpOut, 1f)));
         world.Events.Add(43.5f, StartSwivelCannon);           // Swivel Cannon cast starts t=43.458s
-        world.Events.Add(43.5f, () => omega?.PlayActionTimeline(TimelineId.WarpOut));
-        world.Events.Add(43.5f, () => finalHelper?.Despawn(TimelineId.WarpOut, 2f));  // despawn signal t=43.591s
+        world.Events.Add(43.5f, () => omega?.PlayActionTimeline(TopConstants.TimelineId.WarpOut));
+        world.Events.Add(43.5f, () => finalHelper?.Despawn(TopConstants.TimelineId.WarpOut, 2f));  // despawn signal t=43.591s
         world.Events.Add(47.5f, () => CheckTethersExpired(tethersShort));             // tethers applied t=30.2, 18s life → expire 48.2
         world.Events.Add(53.2f, ResolveSwivelCannon);         // 43.458 + 9.7s cast = t=53.158s
-        world.Events.Add(53.2f, () => DropHelloPuddle(state.NearWorldRole, ActionId.HelloNearWorld));
-        world.Events.Add(53.2f, () => DropHelloPuddle(state.FarWorldRole, ActionId.HelloDistantWorld));
-        world.Events.Add(53.2f, () => omega?.PlayActionTimeline(TimelineId.Spawn));
-        world.Events.Add(54.2f, () => state.NearWorldRole = HopHelloPuddle(state.NearWorldRole, ActionId.HelloNearWorldJump, useClosest: true));
-        world.Events.Add(54.2f, () => state.FarWorldRole = HopHelloPuddle(state.FarWorldRole, ActionId.HelloDistantWorldJump, useClosest: false));
-        world.Events.Add(55.2f, () => state.NearWorldRole = HopHelloPuddle(state.NearWorldRole, ActionId.HelloNearWorldJump, useClosest: true));
-        world.Events.Add(55.2f, () => state.FarWorldRole = HopHelloPuddle(state.FarWorldRole, ActionId.HelloDistantWorldJump, useClosest: false));
-        world.Events.Add(55.6f, () => beetle?.Despawn(TimelineId.WarpOut, 2f));       // beetle despawn signal t=56.599s
+        world.Events.Add(53.2f, () => DropHelloPuddle(state.NearWorldRole, TopConstants.ActionId.HelloNearWorld));
+        world.Events.Add(53.2f, () => DropHelloPuddle(state.FarWorldRole, TopConstants.ActionId.HelloDistantWorld));
+        world.Events.Add(53.2f, () => omega?.PlayActionTimeline(TopConstants.TimelineId.Spawn));
+        world.Events.Add(54.2f, () => state.NearWorldRole = HopHelloPuddle(state.NearWorldRole, TopConstants.ActionId.HelloNearWorldJump, useClosest: true));
+        world.Events.Add(54.2f, () => state.FarWorldRole = HopHelloPuddle(state.FarWorldRole, TopConstants.ActionId.HelloDistantWorldJump, useClosest: false));
+        world.Events.Add(55.2f, () => state.NearWorldRole = HopHelloPuddle(state.NearWorldRole, TopConstants.ActionId.HelloNearWorldJump, useClosest: true));
+        world.Events.Add(55.2f, () => state.FarWorldRole = HopHelloPuddle(state.FarWorldRole, TopConstants.ActionId.HelloDistantWorldJump, useClosest: false));
+        world.Events.Add(55.6f, () => beetle?.Despawn(TopConstants.TimelineId.WarpOut, 2f));       // beetle despawn signal t=56.599s
         world.Events.Add(56.5f, () => omega?.SetTargetable(true));
         world.Events.Add(65.1f, () => CheckTethersExpired(tethersLong));             // tethers expire t=30.2+36=66.2
     }
@@ -162,9 +162,9 @@ public sealed class TopP5DeltaScenario : IScenario
     private void SpawnOmega()
     {
         omega = world.SpawnEnemy(new EnemySpawnConfig(
-            BNpcBaseId: BNpcBaseId.StarterOmega,
-            NameId: BNpcNameId.OmegaM,
-            Level: Level,
+            BNpcBaseId: TopConstants.BNpcBaseId.StarterOmega,
+            NameId: TopConstants.BNpcNameId.OmegaM,
+            Level: TopConstants.Level,
             Targetable: true,
             Rotation: MathF.PI));
     }
@@ -172,33 +172,33 @@ public sealed class TopP5DeltaScenario : IScenario
     private void SpawnDeltaAdds()
     {
         beetle = world.SpawnEnemy(new EnemySpawnConfig(
-            BNpcBaseId: BNpcBaseId.BeetleHelper,
-            NameId: BNpcNameId.OmegaBeetle,
-            Level: Level,
+            BNpcBaseId: TopConstants.BNpcBaseId.BeetleHelper,
+            NameId: TopConstants.BNpcNameId.OmegaBeetle,
+            Level: TopConstants.Level,
             Targetable: false,
             InEnemyList: true,
             Offset: new Vector3(-20f, 0f, 0f) * state.EyeSpawn.Mul,
             Rotation: MathF.PI / 2f * state.EyeSpawn.Mul));
-        beetle?.PlayActionTimeline(TimelineId.Spawn);
+        beetle?.PlayActionTimeline(TopConstants.TimelineId.Spawn);
 
         opticalUnit = world.SpawnEnemy(new EnemySpawnConfig(
             BNpcBaseId: BNpcBaseId.OpticalUnit,
             NameId: BNpcNameId.OpticalUnit,
-            Level: Level,
+            Level: TopConstants.Level,
             Targetable: false,
             InEnemyList: false,
             Offset: new Vector3(0f, 0f, -45f) * state.EyeSpawn.Mul,
             Rotation: MathF.PI / 2f * state.EyeSpawn.Mul));
 
         finalHelper = world.SpawnEnemy(new EnemySpawnConfig(
-            BNpcBaseId: BNpcBaseId.FinalHelper,
-            NameId: BNpcNameId.OmegaFinal,
-            Level: Level,
+            BNpcBaseId: TopConstants.BNpcBaseId.FinalHelper,
+            NameId: TopConstants.BNpcNameId.OmegaFinal,
+            Level: TopConstants.Level,
             Targetable: false,
             InEnemyList: true,
             Offset: new Vector3(20f, 0f, 0f) * state.EyeSpawn.Mul,
             Rotation: -MathF.PI / 2f * state.EyeSpawn.Mul));
-        finalHelper?.PlayActionTimeline(TimelineId.Spawn);
+        finalHelper?.PlayActionTimeline(TopConstants.TimelineId.Spawn);
     }
 
     private void ApplyDeltaTethers()
@@ -224,7 +224,7 @@ public sealed class TopP5DeltaScenario : IScenario
             var punch = world.SpawnEnemy(new EnemySpawnConfig(
                                              BNpcBaseId: state.FistColors[i],
                                              NameId: BNpcNameId.RocketPunch,
-                                             Level: Level,
+                                             Level: TopConstants.Level,
                                              Targetable: false,
                                              InEnemyList: true,
                                              Offset: placement.Position - world.ScenarioOrigin,
@@ -242,12 +242,12 @@ public sealed class TopP5DeltaScenario : IScenario
             var unit = world.SpawnEnemy(new EnemySpawnConfig(
                 BNpcBaseId: state.ArmHandedness[i].ArmUnitId,
                 NameId: state.ArmHandedness[i].ArmUnitNameId,
-                Level: Level,
+                Level: TopConstants.Level,
                 Targetable: false,
                 InEnemyList: true,
                 Offset: Geometry.ArmUnitPlacements[i].Position * new Vector3(state.EyeSpawn.Mul, 1, 1),
                 Rotation: Geometry.ArmUnitPlacements[i].Rotation));
-            unit?.PlayActionTimeline(TimelineId.Spawn);
+            unit?.PlayActionTimeline(TopConstants.TimelineId.Spawn);
             return unit;
         }).ToList();
     }
@@ -301,7 +301,7 @@ public sealed class TopP5DeltaScenario : IScenario
     private void SpawnHwTetherHelper(Vector3 pos, uint actionId)
     {
         var helper = world.SpawnEnemy(new EnemySpawnConfig(
-            BNpcBaseId: BNpcBaseId.OmegaHelper,
+            BNpcBaseId: TopConstants.BNpcBaseId.OmegaHelper,
             Targetable: false,
             InEnemyList: false,
             Offset: pos - world.ScenarioOrigin,
@@ -494,7 +494,7 @@ public sealed class TopP5DeltaScenario : IScenario
                 member.Die("Oversampled Wave Cannon");
             else
             {
-                member.AddStatus(StatusId.MagicVulnUp1, 4.96f);
+                member.AddStatus(TopConstants.StatusId.MagicVulnUp1, 4.96f);
                 member.AddStatus(StatusId.TwiceComeRuin, 6.96f, 1);
             }
         }
@@ -507,7 +507,7 @@ public sealed class TopP5DeltaScenario : IScenario
         {
             var pos = member.Position;
             var spawned = world.SpawnEnemy(new EnemySpawnConfig(
-                BNpcBaseId: BNpcBaseId.OmegaHelper,
+                BNpcBaseId: TopConstants.BNpcBaseId.OmegaHelper,
                 Targetable: false,
                 InEnemyList: false,
                 Offset: pos - world.ScenarioOrigin,
@@ -579,14 +579,14 @@ public sealed class TopP5DeltaScenario : IScenario
         var target = party.Get(role)!;
         var pos = target.Position;
         var helper = world.SpawnEnemy(new EnemySpawnConfig(
-                                          BNpcBaseId: BNpcBaseId.OmegaHelper,
+                                          BNpcBaseId: TopConstants.BNpcBaseId.OmegaHelper,
                                           Targetable: false,
                                           InEnemyList: false,
                                           Offset: pos - world.ScenarioOrigin,
                                           Lifetime: Duration.MonitorHelperLifetime));
         helper?.Cast(spellId, targetLocation: pos, targetId: target.GameObjectId);
 
-        var radius = spellId is ActionId.HelloNearWorldJump or ActionId.HelloDistantWorldJump
+        var radius = spellId is TopConstants.ActionId.HelloNearWorldJump or TopConstants.ActionId.HelloDistantWorldJump
             ? Geometry.HelloWorldJumpAoeRadius
             : Geometry.HelloWorldInitialAoeRadius;
 
@@ -602,8 +602,8 @@ public sealed class TopP5DeltaScenario : IScenario
             return;
         }
 
-        target.AddStatus(StatusId.QuickeningDynamis, 0f, 1);
-        target.AddStatus(StatusId.MagicVulnUp1, 4.96f);
+        target.AddStatus(TopConstants.StatusId.QuickeningDynamis, 0f, 1);
+        target.AddStatus(TopConstants.StatusId.MagicVulnUp1, 4.96f);
     }
 
     private PartyRole HopHelloPuddle(PartyRole currentRole, uint jumpSpell, bool useClosest)
@@ -624,7 +624,7 @@ public sealed class TopP5DeltaScenario : IScenario
     private void HelloWorldFail(Vector3 pos)
     {
         var helper = world.SpawnEnemy(new EnemySpawnConfig(
-                                          BNpcBaseId: BNpcBaseId.OmegaHelper,
+                                          BNpcBaseId: TopConstants.BNpcBaseId.OmegaHelper,
                                           Targetable: false,
                                           InEnemyList: false,
                                           Offset: pos - world.ScenarioOrigin,
@@ -647,30 +647,12 @@ public sealed class TopP5DeltaScenario : IScenario
         ruinWeight += character.GetStatus(StatusId.TriceComeRuin)?.Stacks * 0.4f ?? 0;
         if (ruinWeight > 1) return true;
         if (magic && (
-             character.HasStatus(StatusId.MagicVulnUp1) ||
+             character.HasStatus(TopConstants.StatusId.MagicVulnUp1) ||
              (character.GetStatus(StatusId.MagicVulnUp2)?.Stacks ?? 0) > 1))
         {
             return true;
         }
         return false;
-    }
-
-    // ── TOP P5 arena MapEffect sequences ─────────────────────────────────────
-    // ACT log format: flags(32-bit)|index. Encoding: high16=State, low8=Flags.
-    // Observed in TOP P5 clear pull; needs in-game verification once ZoneSession works.
-
-    private void InitTopArena()
-    {
-        for (byte i = 1; i <= 8; i++)
-        {
-            world.Map.AddEffect(0x00040004, i); // hide eyes
-            // world.Map.AddEffect(0x00010004, i); // hide eyes
-            // world.Map.AddEffect(0x00080000, i); // clear?
-            // world.Map.AddEffect(0x108A0000, i); // hide eyes
-        }
-        // for (byte i = 0x0C; i <= 0x13; i++)
-        //     world.Map.AddEffect(0x00040004, i); // enable base arena elements
-        world.Map.AddEffect(0x00020002, 0x00);  // show death wall
     }
 
     // Delta arena transition animation (index 0x07).

@@ -36,13 +36,15 @@ public static class WaymarkPresets
     }
 }
 
-// Bulk-applied waymark layout. The native API (MarkingController.PlacePreset /
-// ClearFieldMarkers) is all-or-nothing, so this models all eight slots as one
-// SimObject — there's no per-slot lifecycle. Tick is a no-op; once placed the
-// layout sits until Despawn (or scenario reset) tears it down.
+// Bulk-applied waymark layout. Writes directly into MarkingController._fieldMarkers
+// instead of going through PlacePreset / ClearFieldMarkers — those are gated by
+// territory ("No markers allowed in territory" return code 5) and would no-op
+// in the overworld. The renderer reads _fieldMarkers each frame, so direct writes
+// place client-side markers anywhere. Tick is a no-op; the layout sits until
+// Despawn (or scenario reset) clears the slots we set.
 public sealed unsafe class SimWaymarks : ISimObject
 {
-    private bool placed;
+    private readonly List<int> placedSlots = new();
 
     internal SimWaymarks(IReadOnlyList<Waymark> waymarks, Vector3 origin)
     {
@@ -50,32 +52,34 @@ public sealed unsafe class SimWaymarks : ISimObject
         var controller = MarkingController.Instance();
         if (controller == null) { Plugin.Log.Warning("SimWaymarks: MarkingController unavailable"); return; }
 
-        var placement = default(MarkerPresetPlacement);
         for (int i = 0; i < waymarks.Count; i++)
         {
             var wm = waymarks[i];
             var idx = (int)wm.Slot;
             if (idx < 0 || idx > 7) continue;
             var world = origin + wm.Offset;
-            placement.Active[idx] = true;
-            placement.X[idx] = (int)MathF.Round(world.X * 1000f);
-            placement.Y[idx] = (int)MathF.Round(world.Y * 1000f);
-            placement.Z[idx] = (int)MathF.Round(world.Z * 1000f);
+            ref var slot = ref controller->FieldMarkers[idx];
+            slot.Position = world;
+            slot.X = (int)MathF.Round(world.X * 1000f);
+            slot.Y = (int)MathF.Round(world.Y * 1000f);
+            slot.Z = (int)MathF.Round(world.Z * 1000f);
+            slot.Active = true;
+            placedSlots.Add(idx);
         }
-
-        var result = controller->PlacePreset(&placement);
-        if (result != 0) Plugin.Log.Warning($"SimWaymarks: PlacePreset returned {result}");
-        placed = true;
     }
 
-    public bool IsAlive => placed;
+    public bool IsAlive => placedSlots.Count > 0;
     public void Tick(float deltaSeconds) { }
 
     public void Despawn()
     {
-        if (!placed) return;
+        if (placedSlots.Count == 0) return;
         var controller = MarkingController.Instance();
-        if (controller != null) controller->ClearFieldMarkers();
-        placed = false;
+        if (controller != null)
+        {
+            foreach (var idx in placedSlots)
+                controller->FieldMarkers[idx].Active = false;
+        }
+        placedSlots.Clear();
     }
 }

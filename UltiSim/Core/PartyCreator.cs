@@ -1,6 +1,8 @@
 using System;
 using System.Numerics;
+using Dalamud.Game.ClientState.Conditions;
 using FFXIVClientStructs.FFXIV.Client.Game.Character;
+using TerritoryIntendedUse = FFXIVClientStructs.FFXIV.Client.Enums.TerritoryIntendedUse;
 using FFXIVClientStructs.FFXIV.Client.Game.Object;
 using Lumina.Excel;
 using Lumina.Excel.Sheets;
@@ -11,10 +13,13 @@ namespace UltiSim.Core;
 // Spawns and configures the eight party members around the scenario origin.
 // Reads PartyPresets for the player's job (the player's own slot is null in
 // the preset list — that role gets the SimPlayer reference instead), builds
-// each non-player BattleChara as a Lalafell PC, registers it in
-// CharacterManager, and stores the resulting SimPartyMember (or SimPlayer)
-// into the supplied SimParty. Game is the entry point — it computes the
-// origin and delegates here.
+// each non-player BattleChara as a Lalafell PC, and stores the resulting
+// SimPartyMember (or SimPlayer) into the supplied SimParty. In inn rooms or
+// while bound by any duty, doppels are also inserted into
+// CharacterManager._battleCharas so row-click targeting and mouseover
+// tooltips resolve through the engine's normal lookup path; the matching
+// unregister lives in SimPartyMember.Despawn. Game is the entry point — it
+// computes the origin and delegates here.
 internal static unsafe class PartyCreator
 {
     private const byte RaceLalafell = 3;
@@ -32,6 +37,9 @@ internal static unsafe class PartyCreator
     {
         var presets = PartyPresets.ForPlayerJob(playerJob);
         var itemSheet = Plugin.DataManager.GetExcelSheet<Item>();
+        // Snapshot once so register/unregister stay symmetric even if the
+        // player zones mid-scenario.
+        var registerInCharacterManager = ShouldRegisterInCharacterManager();
 
         for (int i = 0; i < presets.Count; i++)
         {
@@ -53,12 +61,29 @@ internal static unsafe class PartyCreator
                 origin.Z + MathF.Cos(angle) * distance);
             var facingPlayer = MathF.Atan2(origin.X - pos.X, origin.Z - pos.Z);
 
-            var member = Spawn(preset, (PartyRole)i, new Placement(pos, facingPlayer), itemSheet);
+            var member = Spawn(preset, (PartyRole)i, new Placement(pos, facingPlayer), itemSheet, registerInCharacterManager);
             if (member != null) party.SetSlot((PartyRole)i, member);
         }
     }
 
-    private static SimPartyMember? Spawn(PartyMemberPreset preset, PartyRole role, Placement placement, ExcelSheet<Item> itemSheet)
+    // True in inn rooms and whenever the player is bound by any duty. In the
+    // open world we keep doppels out of CharacterManager._battleCharas because
+    // the per-frame CharacterManager update attaches the BC into render-side
+    // caches that DeleteObjectByIndex doesn't drain — see EnmityHud.cs.
+    private static bool ShouldRegisterInCharacterManager()
+    {
+        var cond = Plugin.Condition;
+        if (cond[ConditionFlag.BoundByDuty]
+            || cond[ConditionFlag.BoundByDuty56]
+            || cond[ConditionFlag.BoundByDuty95])
+            return true;
+
+        var sheet = Plugin.DataManager.GetExcelSheet<TerritoryType>();
+        return sheet.TryGetRow(Plugin.ClientState.TerritoryType, out var row)
+               && row.TerritoryIntendedUse.RowId == (uint)TerritoryIntendedUse.Inn;
+    }
+
+    private static SimPartyMember? Spawn(PartyMemberPreset preset, PartyRole role, Placement placement, ExcelSheet<Item> itemSheet, bool registerInCharacterManager)
     {
         if (!BattleCharaSpawn.CreateBattleChara(out var idx, out var obj)) return null;
 
@@ -103,8 +128,11 @@ internal static unsafe class PartyCreator
             chara->CurrentWorld = localChara->CurrentWorld;
         }
 
+        if (registerInCharacterManager)
+            BattleCharaSpawn.RegisterInCharacterManager(chara);
+
         Plugin.Log.Info($"PartyCreator: spawned {preset.Name} ({role}, job {preset.ClassJob}) at index {idx}");
-        return new SimPartyMember(idx, role, preset.ClassJob, preset.Name);
+        return new SimPartyMember(idx, role, preset.ClassJob, preset.Name, registerInCharacterManager);
     }
 
     private static void WriteCustomize(BattleChara* chara)

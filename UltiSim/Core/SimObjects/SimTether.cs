@@ -1,3 +1,4 @@
+using System;
 using System.Numerics;
 using FFXIVClientStructs.FFXIV.Client.Game.Character;
 
@@ -21,36 +22,42 @@ public sealed unsafe class SimTether : ISimObject
 {
     private const byte Slot = 0;
 
-    private readonly SimCharacter a;
-    private readonly SimCharacter b;
+    private readonly SimCharacter source;
+    private readonly Func<SimCharacter> target;
     private readonly SimStatus? statusA;
-    private readonly SimStatus? statusB;
+    private SimStatus? statusB;
     private readonly float duration;
+    private readonly ushort DebuffStatusId;
     private float elapsed;
     private bool active;
+    private SimCharacter currentTarget;
 
     public ushort TetherId { get; }
-    public SimCharacter A => a;
-    public SimCharacter B => b;
+    
+    public SimCharacter A => source;
+    public SimCharacter B => currentTarget;
     // Set by the scenario when this tether has been resolved (broken or failed) to
     // prevent duplicate processing if multiple triggers fire in the same frame.
     public bool Resolved { get; set; }
 
-    public static bool IsAnyDead(SimTether t) => !t.a.IsAlive || !t.b.IsAlive;
-    public bool StretchGt(float distance) => Vector3.DistanceSquared(a.Position, b.Position) > distance * distance;
-    public bool StretchLt(float distance) => Vector3.DistanceSquared(a.Position, b.Position) < distance * distance;
+    public static bool IsAnyDead(SimTether t) => !t.A.IsAlive || !t.B.IsAlive;
+    public bool StretchGt(float distance) => Vector3.DistanceSquared(A.Position, B.Position) > distance * distance;
+    public bool StretchLt(float distance) => Vector3.DistanceSquared(A.Position, B.Position) < distance * distance;
 
-    internal SimTether(SimCharacter a, SimCharacter b, ushort tetherId, ushort debuffStatusId, float duration)
+    internal SimTether(SimCharacter source, Func<SimCharacter> target, ushort tetherId, ushort debuffStatusId, float duration)
     {
-        this.a = a;
-        this.b = b;
+        this.source = source;
+        this.target = target;
         TetherId = tetherId;
+        DebuffStatusId = debuffStatusId;
         this.duration = duration;
-        VfxFunctions.SetTether((Character*)a.BattleCharaPtr, Slot, TetherId, b.GameObjectId, 1);
+        currentTarget = target();
+        
+        VfxFunctions.SetTether((Character*)source.BattleCharaPtr, Slot, TetherId, currentTarget.GameObjectId, 1);
         if (debuffStatusId != 0 && duration > 0f)
         {
-            statusA = a.AddStatus(debuffStatusId, duration);
-            statusB = b.AddStatus(debuffStatusId, duration);
+            statusA = source.AddStatus(debuffStatusId, duration);
+            statusB = currentTarget.AddStatus(debuffStatusId, duration);
         }
         active = true;
     }
@@ -65,8 +72,21 @@ public sealed unsafe class SimTether : ISimObject
             ClearTetherVfxIfOwned();
             active = false;
         }
+        
+        var nextTarget = target();
+        if (nextTarget != currentTarget)
+        {
+            ClearTetherVfxIfOwned();
+            statusB?.Despawn();
+            currentTarget = nextTarget;
+            VfxFunctions.SetTether((Character*)source.BattleCharaPtr, Slot, TetherId, currentTarget.GameObjectId, 1);
+            if (DebuffStatusId != 0 && duration > 0f)
+            {
+                statusB = currentTarget.AddStatus(DebuffStatusId, duration);
+            }
+        }
     }
-
+    
     public void Despawn()
     {
         if (active)
@@ -84,7 +104,7 @@ public sealed unsafe class SimTether : ISimObject
     // overwritten Vfx.Tethers[slot].Id; we leave that alone.
     private void ClearTetherVfxIfOwned()
     {
-        var ca = (Character*)a.BattleCharaPtr;
+        var ca = (Character*)source.BattleCharaPtr;
         if (VfxFunctions.GetTetherId(ca, Slot) == TetherId) VfxFunctions.ClearTether(ca, Slot);
     }
 }

@@ -27,7 +27,7 @@ public sealed unsafe class SimPlayer : SimPartySlot
         }
     }
 
-    public override uint EntityId
+    public uint EntityId
     {
         get
         {

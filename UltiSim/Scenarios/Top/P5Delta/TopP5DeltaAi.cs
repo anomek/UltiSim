@@ -3,9 +3,9 @@ using System.Linq;
 using System.Numerics;
 using UltiSim.Core;
 using UltiSim.Core.SimObjects;
-using static UltiSim.Scenarios.TopP5Delta.TopP5DeltaConstants.Geometry;
+using static UltiSim.Scenarios.Top.P5Delta.TopP5DeltaConstants.Geometry;
 
-namespace UltiSim.Scenarios.TopP5Delta;
+namespace UltiSim.Scenarios.Top.P5Delta;
 
 // First AI strategy for TOP P5 Delta. Reads the shared TopP5DeltaState so its
 // movement decisions stay in sync with the scenario's randomized layout, and

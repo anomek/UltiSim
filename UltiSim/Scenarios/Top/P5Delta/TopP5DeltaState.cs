@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using UltiSim.Core;
-using static UltiSim.Scenarios.TopP5Delta.TopP5DeltaConstants;
+using static UltiSim.Scenarios.Top.P5Delta.TopP5DeltaConstants;
 
-namespace UltiSim.Scenarios.TopP5Delta;
+namespace UltiSim.Scenarios.Top.P5Delta;
 
 public sealed class Side
 {
@@ -32,7 +32,7 @@ public sealed class Side
 
     // StatusLoopVFX rows 534/535 → VFX rows 1591/1592 → these files. The m0771
     // prefix on the filename is just naming convention; the file lives under common/.
-    public static readonly Side Right = new(ActionId.OversampledWaveCannonRight, ActionId.SwivelCannonR, StatusId.PlayerMonitorRight, "vfx/common/eff/m0771stlp3c0c.avfx", -1, BNpcBaseId.RightArmUnit, BNpcNameId.RightArmUnit, LockonId.RotateCw);
+    public static readonly Side Right = new(ActionId.OversampledWaveCannonRight, ActionId.SwivelCannonR, StatusId.PlayerMonitorRight, "vfx/common/eff/m0771stlp3c0c.avfx", -1, TopConstants.BNpcBaseId.RightArmUnit, BNpcNameId.RightArmUnit, LockonId.RotateCw);
     public static readonly Side Left = new(ActionId.OversampledWaveCannonLeft, ActionId.SwivelCannonL, StatusId.PlayerMonitorLeft, "vfx/common/eff/m0771stlp4c0c.avfx", 1, BNpcBaseId.LeftArmUnit, BNpcNameId.LeftArmUnit, LockonId.RotateCcw);
 }
 

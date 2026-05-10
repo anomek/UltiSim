@@ -7,11 +7,29 @@ public sealed unsafe class SimPartyMember : SimNpc
     public byte ClassJob { get; }
     public string DisplayName { get; }
 
-    internal SimPartyMember(uint index, PartyRole role, byte classJob, string name) : base(index)
+    private readonly bool registeredInCharacterManager;
+
+    internal SimPartyMember(uint index, PartyRole role, byte classJob, string name, bool registeredInCharacterManager) : base(index)
     {
         Role = role;
         ClassJob = classJob;
         DisplayName = name;
+        this.registeredInCharacterManager = registeredInCharacterManager;
+    }
+
+    public override void Despawn()
+    {
+        // Unregister before base.Despawn (which calls DeleteObjectByIndex) so
+        // CharacterManager doesn't keep a pointer to a freed BC. This is
+        // necessary but may not be sufficient against the render-cache crash
+        // (see EnmityHud.cs comment) — confirmed safe only for the inn/duty
+        // contexts gated in PartyCreator.
+        if (registeredInCharacterManager)
+        {
+            var bc = BattleCharaPtr;
+            if (bc != null) BattleCharaSpawn.UnregisterFromCharacterManager(bc);
+        }
+        base.Despawn();
     }
 
     private float deadElapsed;

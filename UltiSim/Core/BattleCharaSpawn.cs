@@ -36,4 +36,27 @@ internal static unsafe class BattleCharaSpawn
         for (int i = 0; i < max; i++) obj->Name[i] = (byte)name[i];
         obj->Name[max] = 0;
     }
+
+    // Inserts a spawned BC into the first free CharacterManager._battleCharas
+    // slot. Caller decides when this is safe — see PartyCreator's inn/duty gate.
+    // No-op if already registered or if no free slot exists.
+    public static void RegisterInCharacterManager(BattleChara* chara)
+    {
+        var cm = CharacterManager.Instance();
+        if (cm == null || chara == null) return;
+        var arr = cm->BattleCharas;
+        for (int i = 0; i < arr.Length; i++)
+            if (arr[i].Value == chara) return;
+        for (int i = 0; i < arr.Length; i++)
+            if (arr[i].Value == null) { arr[i] = chara; return; }
+    }
+
+    public static void UnregisterFromCharacterManager(BattleChara* chara)
+    {
+        var cm = CharacterManager.Instance();
+        if (cm == null || chara == null) return;
+        var arr = cm->BattleCharas;
+        for (int i = 0; i < arr.Length; i++)
+            if (arr[i].Value == chara) { arr[i] = (BattleChara*)null; return; }
+    }
 }
