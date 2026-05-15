@@ -32,4 +32,9 @@ public readonly record struct Placement(Vector3 Position, float Rotation)
     {
         return new Placement(Position + origin, Rotation);
     }
+
+    public Placement GlobalToLocal(Vector3 origin)
+    {
+        return new Placement(Position - origin, Rotation);
+    }
 }

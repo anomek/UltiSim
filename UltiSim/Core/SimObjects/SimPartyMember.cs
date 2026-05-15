@@ -9,7 +9,7 @@ public sealed unsafe class SimPartyMember : SimNpc
 
     public bool RegisteredInCharacterManager { get; }
 
-    internal SimPartyMember(uint index, PartyRole role, byte classJob, string name, bool registeredInCharacterManager) : base(index)
+    internal SimPartyMember(uint index, SimWorld world, PartyRole role, byte classJob, string name, bool registeredInCharacterManager) : base(index, world)
     {
         Role = role;
         ClassJob = classJob;

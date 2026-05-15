@@ -1,10 +1,12 @@
 """Parse an FFXIV ACT/IINACT network log and print pulls in a given territory.
 
+WARNING: parser is 100% vibe-coded, code is bad but it works
+
 Usage:
     python parser.py <log_path> <territory_id_decimal>
 
 Example:
-    python parser.py D:\\Projects\\ffxiv\\UltiSim\\logs\\Network_30108_20260504_TOP.log 1122
+    python parser.py ..\\logs\\Network_30108_20260504_TOP.log 1122
 
 Territory IDs are decimal (1122 = TOP = 0x462). The log stores them in hex
 on `01|` (ChangeZone) lines.
@@ -521,14 +523,17 @@ def _csharp_const_name(name: str, id_: int) -> str:
 # Per-constant-category C# type and literal-format. Categories are emitted as
 # nested static classes inside the generated `Constants` block.
 _CONST_TYPES: dict[str, tuple[str, str]] = {
-    "BNpcBaseId": ("uint", "{}"),
-    "BNpcNameId": ("uint", "{}"),
-    "EObjId":     ("uint", "{}"),
-    "ActionId":   ("uint",   "0x{:X}U"),
-    "StatusId":   ("ushort", "(ushort)0x{:X}"),
-    "TetherId":   ("ushort", "(ushort)0x{:X}"),
-    "TimelineId": ("ushort", "(ushort)0x{:X}"),
-    "LockonId":   ("uint",   "{}"),
+    "BNpcBaseId":  ("uint", "{}"),
+    "BNpcNameId":  ("uint", "{}"),
+    "EObjId":      ("uint", "{}"),
+    "ActionId":    ("uint",   "0x{:X}U"),
+    "StatusId":    ("ushort", "(ushort)0x{:X}"),
+    "TetherId":    ("ushort", "(ushort)0x{:X}"),
+    "TimelineId":  ("ushort", "(ushort)0x{:X}"),
+    "LockonId":    ("uint",   "{}"),
+    # Knockback sheet row id, named after the action that produced it. Used by
+    # the `world.Party.Knockback(source, knockbackId)` overload.
+    "KnockbackId": ("uint",   "{}"),
 }
 
 
@@ -588,21 +593,12 @@ def _csharp_id(name: str, obj_id: str) -> str:
 def _csharp_vec3_local(x: str, y: str, z: str, cx: float, cy: float) -> str:
     """Log (PosX, PosY, PosZ) → scenario-local C# Vector3(X, Y, Z) where C#'s
     Y axis is the log's PosZ (height) and C#'s Z axis is the log's PosY
-    (north/south). Origin (`--x`, `--y`) is subtracted from X and Z."""
+    (north/south). Origin (`--x`, `--y`) is subtracted from X and Z. Used for
+    SpawnEnemy/SpawnEventObject Placement, SetPosition (both overloads), and
+    Cast targetLocation — every SimXxx position-bearing API speaks local."""
     try:
         return (f"new Vector3({float(x) - cx:.3f}f, {float(z):.3f}f, "
                 f"{float(y) - cy:.3f}f)")
-    except (ValueError, TypeError):
-        return "new Vector3(0f, 0f, 0f)"
-
-
-def _csharp_vec3_world(x: str, y: str, z: str) -> str:
-    """Log (PosX, PosY, PosZ) → world-space C# Vector3 with the same axis swap
-    as `_csharp_vec3_local`, but no origin subtraction. Used for SetPosition /
-    targetLocation / SetPosition(Placement) — scenarios pass world coords there."""
-    try:
-        return (f"new Vector3({float(x):.3f}f, {float(z):.3f}f, "
-                f"{float(y):.3f}f)")
     except (ValueError, TypeError):
         return "new Vector3(0f, 0f, 0f)"
 
@@ -1456,7 +1452,7 @@ def emit_csharp_per_npc_action(
         return (
             f"{owner_field} = world.SpawnEnemy(new EnemySpawnConfig("
             f"BNpcBaseId: {bnpc_base_expr}, NameId: {name_id_expr}, Level: {level}, "
-            f"Targetable: false, InEnemyList: false, IsVisible: false, "
+            f"Targetable: false, EnemyList: EnemyListMode.Never, IsVisible: false, "
             f"Placement: new Placement({_csharp_vec3_local(x, y, z, center_x, center_y)}, "
             f"{_csharp_float(heading)})))"
         )
@@ -1576,12 +1572,12 @@ def emit_csharp_per_npc_action(
         return f"world.Tether({a_arg}, {b_arg}, {tether_expr})"
     if opcode == "270":
         x, y, z = _safe(parts, 6), _safe(parts, 7), _safe(parts, 8)
-        return f"{owner_field}?.SetPosition({_csharp_vec3_world(x, y, z)})"
+        return f"{owner_field}?.SetPosition({_csharp_vec3_local(x, y, z, center_x, center_y)})"
     if opcode == "271":
         heading = _safe(parts, 3)
         x, y, z = _safe(parts, 6), _safe(parts, 7), _safe(parts, 8)
         return (
-            f"{owner_field}?.SetPosition(new Placement({_csharp_vec3_world(x, y, z)}, "
+            f"{owner_field}?.SetPosition(new Placement({_csharp_vec3_local(x, y, z, center_x, center_y)}, "
             f"{_csharp_float(heading)}))"
         )
     if opcode == "34":
@@ -1615,11 +1611,11 @@ def emit_csharp_per_npc_action(
                 elif k == "PosZ":    pos_z = v
                 elif k == "Heading": heading = v
             # The "BNpcID" field on Type|7 actors is actually an EObj sheet row id,
-            # not a BNpcBase row. We register it as an EObjId constant for diagnostics
-            # and emit ModelCharaId: 0 so the spawn fails-fast — EObj rows resolve
-            # visuals via SharedGroup .sgb assets that CreateBattleCharacter can't load,
-            # so the user has to fill in a donor ModelCharaId by hand (or comment the
-            # line out). See SimEventObject.cs for the rationale.
+            # not a BNpcBase row. Register it as an EObjId constant and route to
+            # SimWorld.SpawnEventObject, which allocates a slot from the
+            # EventObjectManager 40-slot pool and binds it to the row's SharedGroup
+            # via the engine's internal attach (FUN_14174dac0). See SimEventObject.cs
+            # and EventObjectSpawn.cs for the spawn pipeline.
             eobj_expr = "0"
             if bnpc_id_str:
                 try:
@@ -1629,11 +1625,15 @@ def emit_csharp_per_npc_action(
                     )
                 except ValueError:
                     eobj_expr = bnpc_id_str
+            # IsVisible: false by default — the 261|Change ModelStatus|0 that the
+            # log emits one tick later is what flips visibility on, and we
+            # already translate that into SetVisible(true) below.
             return (
                 f"{owner_field} = world.SpawnEventObject(new EventObjectSpawnConfig("
-                f"ModelCharaId: 0 /* TODO donor model */, EObjId: {eobj_expr}, "
+                f"EObjRowId: {eobj_expr}, "
                 f"Placement: new Placement({_csharp_vec3_local(pos_x, pos_y, pos_z, center_x, center_y)}, "
-                f"{_csharp_float(heading)})))"
+                f"{_csharp_float(heading)}), "
+                f"IsVisible: false))"
             )
         if mode == "Remove" and is_event_object:
             return f"{owner_field}?.Despawn()"
@@ -1868,7 +1868,7 @@ def emit_scenario_class(
                     if opj != "263" or _safe(pj, 2) != src_id:
                         continue
                     x, y, z = _safe(pj, 4), _safe(pj, 5), _safe(pj, 6)
-                    cast_targets[i] = _csharp_vec3_world(x, y, z)
+                    cast_targets[i] = _csharp_vec3_local(x, y, z, center_x, center_y)
                     suppress_idx.add(j)
                     break
 
@@ -1899,6 +1899,12 @@ def emit_scenario_class(
                     resolved_idx.add(j)
                     break
 
+            # Dedup repeated party-wide knockback emissions when one 22|AOE
+            # action lands on every target (each target produces its own 22
+            # line at the same timestamp). The cast itself is still per-target
+            # for legacy compatibility, but Knockback applies to all slots and
+            # only needs one event.
+            knockback_emitted: set[tuple[float, str]] = set()
             for i, (t, opcode, parts, raw) in enumerate(parsed):
                 if i in suppress_idx:
                     continue
@@ -1908,21 +1914,43 @@ def emit_scenario_class(
                 body.append(f"        // [{t_scenario:.2f}s] {raw}")
                 if printed_raws is not None:
                     printed_raws.add(raw)
-                if i in resolved_idx:
-                    continue
-                call = emit_csharp_per_npc_action(
-                    opcode, parts, npc.obj_id, field,
-                    roles, npc_fields_by_id, consts,
-                    center_x, center_y,
-                    cast_target=cast_targets.get(i),
-                    is_event_object=npc.is_event_object,
-                )
-                if call is None:
-                    continue
-                line = f"world.Events.Add({t_scenario:.2f}f, () => {call});"
-                if t_scenario < 0:
-                    line = "// " + line  # negative offset — pre-window event, not schedulable
-                body.append(f"        {line}")
+                if i not in resolved_idx:
+                    call = emit_csharp_per_npc_action(
+                        opcode, parts, npc.obj_id, field,
+                        roles, npc_fields_by_id, consts,
+                        center_x, center_y,
+                        cast_target=cast_targets.get(i),
+                        is_event_object=npc.is_event_object,
+                    )
+                    if call is not None:
+                        line = f"world.Events.Add({t_scenario:.2f}f, () => {call});"
+                        if t_scenario < 0:
+                            line = "// " + line  # negative offset — pre-window event, not schedulable
+                        body.append(f"        {line}")
+                # Independent of whether the 21/22 line resolved a preceding
+                # `20|StartsCasting` (and is thus skipped above as a duplicate
+                # Cast), emit a `world.Party.Knockback(source, knockbackRowId)`
+                # when the resolution carries a knockback effect (type 0x1F).
+                # The Knockback-sheet row id is taken from the effect's Value
+                # field and registered as `Constants.KnockbackId.<ActionName>`
+                # so scenarios read it symbolically; KnockbackLookup reads the
+                # Knockback sheet by row at runtime.
+                if opcode in ("21", "22"):
+                    kb_row = _extract_knockback_row(parts)
+                    if kb_row is not None:
+                        spell_id = _safe(parts, 4)
+                        kb_key = (round(t_scenario, 3), spell_id)
+                        if kb_key not in knockback_emitted:
+                            knockback_emitted.add(kb_key)
+                            spell_name = _safe(parts, 5) or f"Kb_{spell_id}"
+                            kb_const_expr = consts.register("KnockbackId", kb_row, spell_name)
+                            kb_line = (
+                                f"world.Events.Add({t_scenario:.2f}f, () => {{ "
+                                f"if ({field} != null) world.Party.Knockback({field}.Position, {kb_const_expr}); }});"
+                            )
+                            if t_scenario < 0:
+                                kb_line = "// " + kb_line
+                            body.append(f"        {kb_line}")
         body.append("    }")
         method_bodies.append(body)
 
@@ -2215,6 +2243,38 @@ def emit_scenario_class(
 
     out.append("}")
     return "\n".join(out)
+
+
+def _extract_knockback_row(parts: list[str]) -> int | None:
+    """Decode the 8 (flags|data) effect pairs of a type-21/22 NetworkAbility line
+    and return the Knockback row id from the first type-0x1F effect, or None.
+
+    Effect layout (matches FFXIVClientStructs.ActionEffectHandler.Effect):
+      flags uint32 LE = type | param0<<8 | param1<<16 | param2<<24
+      data  uint32 LE = param3 | param4<<8 | value<<16   (value = 2-byte
+                                                          Knockback row id)
+    """
+    if len(parts) < 24:
+        return None
+    for i in range(8):
+        flags_hex = parts[8 + i * 2]
+        data_hex = parts[9 + i * 2]
+        if not flags_hex:
+            continue
+        try:
+            flags = int(flags_hex, 16)
+        except ValueError:
+            continue
+        if (flags & 0xFF) != 0x1F:
+            continue
+        try:
+            data = int(data_hex, 16) if data_hex else 0
+        except ValueError:
+            continue
+        row = (data >> 16) & 0xFFFF
+        if row != 0:
+            return row
+    return None
 
 
 def _human_readable_event(

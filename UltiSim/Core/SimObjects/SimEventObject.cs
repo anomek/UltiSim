@@ -1,157 +1,145 @@
-using System;
 using System.Numerics;
-using FFXIVClientStructs.FFXIV.Client.LayoutEngine;
-using FFXIVClientStructs.FFXIV.Client.LayoutEngine.Group;
-using UltiSim.Core.Map;
+using FFXIVClientStructs.FFXIV.Client.Game.Object;
 
 namespace UltiSim.Core.SimObjects;
 
-// Acquires an existing SharedGroup ILayoutInstance baked into the active
-// zone's LGB layout and drives its state through scenario events. Restores
-// the snapshot on Despawn. Never allocates — the engine owns the instance.
+// Placement.Position is scenario-local (offset from SimWorld.ScenarioOrigin) —
+// same coordinate space as SimEventObject.Position / SetPosition once spawned.
+// EObjRowId references Lumina's EObj sheet — the row's SgbPath/PopType drives
+// the model picked by the engine's internal SharedGroup attach. ModelChara
+// substitution is not part of the EObj pipeline; pick the right EObj row.
 //
-// EObj scenery (e.g. TOP arena tiles, the 1EA1A1 fixture, the Exit portal)
-// is loaded by the engine at zone-init as SharedGroupLayoutInstance under
-// LayoutWorld.ActiveLayout. Substituting a global ModelChara won't match
-// the canonical duty-scoped .sgb assets — looking up the engine's existing
-// instance does. See LayoutQuery for the discovery side.
-public abstract record SharedGroupDescriptor
-{
-    public sealed record BySgbPath(string SgbPath) : SharedGroupDescriptor;
-    public sealed record ByEObjRow(uint EObjRowId) : SharedGroupDescriptor;
-    public sealed record ByPosition(Vector3 World, float Radius = 1.0f, string? PathContains = null) : SharedGroupDescriptor;
-}
-
-// Placement on the descriptor's ByPosition is in scenario-space (relative to
-// SimWorld.ScenarioOrigin). BySgbPath and ByEObjRow are zone-global.
-public record struct EventObjectAcquireConfig(
-    SharedGroupDescriptor Descriptor,
+// VisibleState is the SG state index that means "visible" for this EObj. The
+// orb (1EB83C) is already visible at the engine default state=0, so leave it
+// at 0. The Sigma ground circles (1EB83D / 1EB83E) need state=16 to render
+// fully; state=1..6 partial-renders are the engine's player-proximity animation
+// frames. SetVisible toggles between this value and 0.
+public record struct EventObjectSpawnConfig(
+    uint EObjRowId,
+    Placement Placement = default,
     bool IsVisible = true,
+    short VisibleState = 0,
     float Lifetime = 0f);
 
-public sealed unsafe class SimEventObject : ISimObject, IPositioned
+// Handle around an EventObject GameObject allocated via the manager's
+// CreateEventObject (the 40-slot pool exposed in GameObjectManager indices
+// 449-488). Mirror of SimEnemy / SimNpc for the EObj actor pool: we own the
+// slot, write position/rotation/state directly on the GameObject, and release
+// the slot on Despawn via GameObject.Terminate (vfunc 60).
+//
+// Rendering note: EObjs render via the LayoutEngine scene graph using their
+// attached SharedGroup, NOT via GameObject.DrawObject. Visibility is therefore
+// driven by the state field at actor+0x1B2 (which gates which SG sub-instances
+// are visible), not by EnableDraw/DisableDraw — those are character-only.
+//
+// Why not packets: the canonical spawn path is HandleSpawnObjectPacket, which
+// brings zone-state guards, housing/MJI branches, and forwards to SetEventId/
+// SetFateId/SetEventState that don't apply to simulated scenery. We use the
+// same internals-only pattern BattleCharaSpawn uses for SimEnemy/SimPartyMember.
+public unsafe class SimEventObject : ISimObject, IPositioned
 {
-    public nint InstancePtr { get; private set; }
-    public string SgbPath { get; }
-    public string DisplayName => SgbPath;
+    private int slot = -1;
+    private GameObject* obj;
+    private readonly SimWorld world;
+    private readonly short visibleState;
 
-    private readonly Transform initialTransform;
-    private readonly bool initialActive;
-    private bool alive = true;
+    public uint EObjRowId { get; }
+    public string DisplayName => $"EObj 0x{EObjRowId:X}";
+    public int Slot => slot;
+    public nint Address => (nint)obj;
 
-    public bool IsAlive => alive && InstancePtr != 0;
+    public bool IsAlive => slot >= 0 && obj != null;
 
-    public Vector3 Position
+    // Stored Position/Rotation mirror the native GameObject — mutators write
+    // both, and Tick re-syncs from native to catch any direct-struct writes.
+    public Vector3 Position { get; private set; }
+    public float Rotation { get; private set; }
+
+    protected SimEventObject(int slot, GameObject* obj, SimWorld world, uint eObjRowId, short visibleState)
     {
-        get
-        {
-            var sg = (SharedGroupLayoutInstance*)InstancePtr;
-            return sg == null ? default : sg->Transform.Translation;
-        }
+        this.slot = slot;
+        this.obj = obj;
+        this.world = world;
+        this.visibleState = visibleState;
+        EObjRowId = eObjRowId;
     }
 
-    public float Rotation
+    internal static SimEventObject? Spawn(EventObjectSpawnConfig config, SimWorld world, EventScheduler events)
     {
-        get
-        {
-            var sg = (SharedGroupLayoutInstance*)InstancePtr;
-            if (sg == null) return 0f;
-            var q = sg->Transform.Rotation;
-            // Yaw from quaternion (Y-up). Same convention SimNpc uses for nameplate rotation.
-            return MathF.Atan2(2f * (q.W * q.Y + q.X * q.Z), 1f - 2f * (q.Y * q.Y + q.X * q.X));
-        }
-    }
-
-    private SimEventObject(nint instance, string sgbPath, Transform snapshotTransform, bool snapshotActive)
-    {
-        InstancePtr = instance;
-        SgbPath = sgbPath;
-        initialTransform = snapshotTransform;
-        initialActive = snapshotActive;
-    }
-
-    internal static SimEventObject? Acquire(EventObjectAcquireConfig config, Vector3 origin, EventScheduler events)
-    {
-        SharedGroupLayoutInstance* sg = config.Descriptor switch
-        {
-            SharedGroupDescriptor.BySgbPath p => LayoutQuery.FindBySgbPath(p.SgbPath),
-            SharedGroupDescriptor.ByEObjRow e => LayoutQuery.FindByEObjRow(e.EObjRowId),
-            SharedGroupDescriptor.ByPosition pos => LayoutQuery.FindByPosition(
-                new Vector3(origin.X + pos.World.X, origin.Y + pos.World.Y, origin.Z + pos.World.Z),
-                pos.Radius, pos.PathContains),
-            _ => null,
-        };
-
-        if (sg == null)
-        {
-            Plugin.Log.Warning($"SimEventObject: could not resolve descriptor {config.Descriptor}");
+        if (!EventObjectSpawn.Create(config.EObjRowId, out var slot, out var obj))
             return null;
-        }
 
-        var path = LayoutQuery.GetSgbPath(sg) ?? "(unknown)";
-        var inst = (ILayoutInstance*)sg;
-        var snapTransform = sg->Transform;
-        var snapActive = inst->IsActive;
+        var worldPos = world.ToWorld(config.Placement.Position);
+        obj->SetPosition(worldPos.X, worldPos.Y, worldPos.Z);
+        obj->SetRotation(MathUtil.NormalizeRotation(config.Placement.Rotation));
 
-        var eo = new SimEventObject((nint)sg, path, snapTransform, snapActive);
-        eo.SetVisible(config.IsVisible);
+        var eo = new SimEventObject(slot, obj, world, config.EObjRowId, config.VisibleState);
+        // Seed stored Position/Rotation. The native struct writes above are
+        // authoritative for the engine; SetPosition mirrors them into the C#
+        // fields (and harmlessly re-pushes to native).
+        eo.SetPosition(config.Placement);
+        if (config.IsVisible && config.VisibleState != 0)
+            eo.SetState(config.VisibleState);
 
         if (config.Lifetime > 0f) events.Add(config.Lifetime, eo.Despawn);
 
-        Plugin.Log.Info($"SimEventObject: acquired '{path}' at ({snapTransform.Translation.X:F2},{snapTransform.Translation.Y:F2},{snapTransform.Translation.Z:F2})");
+        Plugin.Log.Info($"SimEventObject: spawned EObj 0x{config.EObjRowId:X} at slot {slot} ({worldPos.X:F2},{worldPos.Y:F2},{worldPos.Z:F2})");
         return eo;
     }
 
-    // ILayoutInstance.SetActive (vfunc 63) toggles render visibility for
-    // SharedGroup instances. Same pattern as SetColliderActive (vfunc 37) used
-    // for the spawn-area barrier drop, but on the render path.
-    public void SetVisible(bool visible)
-    {
-        var sg = (SharedGroupLayoutInstance*)InstancePtr;
-        if (sg == null) return;
-        ((ILayoutInstance*)sg)->SetActive(visible);
-    }
-
-    // ILayoutInstance.SetTransform (vfunc 18) writes the full SRT to the
-    // instance; engine handles the dirty propagation to graphics + collider.
     public void SetPosition(Vector3 position)
     {
-        var sg = (SharedGroupLayoutInstance*)InstancePtr;
-        if (sg == null) return;
-        var t = sg->Transform;
-        t.Translation = position;
-        ((ILayoutInstance*)sg)->SetTransform(&t);
+        Position = position;
+        if (obj == null) return;
+        var w = world.ToWorld(position);
+        obj->SetPosition(w.X, w.Y, w.Z);
     }
 
     public void SetPosition(Placement placement)
     {
-        var sg = (SharedGroupLayoutInstance*)InstancePtr;
-        if (sg == null) return;
-        var t = sg->Transform;
-        t.Translation = placement.Position;
-        t.Rotation = Quaternion.CreateFromYawPitchRoll(MathUtil.NormalizeRotation(placement.Rotation), 0f, 0f);
-        ((ILayoutInstance*)sg)->SetTransform(&t);
+        Position = placement.Position;
+        Rotation = MathUtil.NormalizeRotation(placement.Rotation);
+        if (obj == null) return;
+        var w = world.ToWorld(placement.Position);
+        obj->SetPosition(w.X, w.Y, w.Z);
+        obj->SetRotation(Rotation);
     }
 
-    public void Tick(float deltaSeconds)
+    // Writes the EObj state field at actor+0x1B2 and (when the SharedGroup
+    // layout instance is attached at actor+0x108) notifies the SG to flip
+    // sub-instance visibility. Per-EObj state values are SG-specific —
+    // experiment empirically to find what activates a given visual. Safe to
+    // call before the SG instance is attached: only the field write happens,
+    // the notify silently no-ops; the engine picks up the field once attached.
+    public void SetState(short state)
     {
-        // Engine owns the instance's per-frame update. Nothing to do.
+        if (obj == null) return;
+        EventObjectSpawn.SetState(obj, state);
+    }
+
+    // Convenience for parser-driven scenarios that emit SetVisible from
+    // ACT 261|Change ModelStatus events. Flips between the configured
+    // VisibleState and 0 (the engine default / "hidden" for gated SGs).
+    public void SetVisible(bool visible) => SetState(visible ? visibleState : (short)0);
+
+    public virtual void Tick(float deltaSeconds)
+    {
+        // Re-sync stored Position/Rotation from native — catches any
+        // direct-struct writes between Ticks (engine doesn't move EObjs on
+        // its own, but the parallel pattern with SimNpc keeps the contract
+        // uniform across IPositioned implementers).
+        if (obj == null) return;
+        Position = world.ToLocal(obj->Position);
+        Rotation = obj->Rotation;
     }
 
     public void Despawn()
     {
-        if (!alive) return;
-        alive = false;
-        var sg = (SharedGroupLayoutInstance*)InstancePtr;
-        if (sg != null)
-        {
-            // Restore the snapshot the engine had before we touched it. We do
-            // not free the instance — the engine owns its lifetime.
-            var inst = (ILayoutInstance*)sg;
-            var t = initialTransform;
-            inst->SetTransform(&t);
-            inst->SetActive(initialActive);
-        }
-        InstancePtr = 0;
+        if (slot < 0) return;
+        var releasedSlot = slot;
+        slot = -1;
+        obj = null;
+        EventObjectSpawn.Destroy(releasedSlot);
+        Plugin.Log.Info($"SimEventObject: despawned slot {releasedSlot}");
     }
 }

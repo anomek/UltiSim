@@ -67,7 +67,18 @@ public sealed class AiMove
         if (positions[i] is { } v)
             positions[i] = v with { Y = v.Y * mul };
     }
+    
+    public void Multiply(float mul)
+    {
+        MultiplyX(mul);
+        MultiplyY(mul);
+    }
 
+    // Scatter: for each source index i, write its value to destination `order[i]`.
+    // Reads naturally as "the value currently authored as i belongs at slot order[i]."
+    // Use this when you have a permutation expressed as `dstByIdx[srcIdx] = dst`.
+    // Example: RoleList.Reorder passes [Order[0]..Order[7]] so authored tether-index i
+    // moves to slot (int)role — i.e., the chain ends in role-indexed positions.
     public AiMove Reorder(int[] order)
     {
         var old = (Vector2?[])positions.Clone();
@@ -76,11 +87,53 @@ public sealed class AiMove
         return this;
     }
 
-    // Applies each action to this AiMove in sequence.
+    // Gather: for each destination slot i, pull from source index `order[i]`.
+    // Reads naturally as "slot i should contain the value originally at order[i]."
+    // Use this when you have a permutation expressed as `srcByIdx[dstIdx] = src`.
+    // Example: WaveCannon authoring in clockspot order with ClockSpots[tether]=clockspot
+    // → ReorderReverse pulls `positions[tether] = old[ClockSpots[tether]]`.
+    public AiMove ReorderReverse(int[] order)
+    {
+        var old = (Vector2?[])positions.Clone();
+        for (int i = 0; i < positions.Length; i++)
+            positions[i] = old[order[i]];
+        return this;
+    }
 
     public AiMove Swap(int a, int b)
     {
         (positions[a], positions[b]) = (positions[b], positions[a]);
+        return this;
+    }
+    
+    public AiMove SwapPair(int a, int b)
+    {
+        Swap(2 * a, 2 * b);
+        Swap(2 * a + 1, 2 * b + 1);
+        return this;
+    }
+
+    public AiMove Rotate(float radiansFromNorth)
+    {
+        var cos = MathF.Cos(radiansFromNorth);
+        var sin = MathF.Sin(radiansFromNorth);
+        for (int i = 0; i < positions.Length; i++)
+            if (positions[i] is { } v)
+                positions[i] = new Vector2(v.X * cos - v.Y * sin, v.X * sin + v.Y * cos);
+        return this;
+    }
+
+    // Cyclic gather: each slot i pulls from offset (i + count), wrapping around.
+    // Equivalent to ReorderReverse with order [(0+count)%n, (1+count)%n, ...].
+    // Positive count rotates the *view* forward — e.g. OffsetOrder(1) turns
+    // [A,B,C,D,E,F,G,H] into [B,C,D,E,F,G,H,A]. Negative counts are normalized
+    // through the modulo so callers can pass any int.
+    public AiMove OffsetOrder(int count)
+    {
+        var old = (Vector2?[])positions.Clone();
+        var len = positions.Length;
+        for (var i = 0; i < len; i++)
+            positions[i] = old[((i + count) % len + len) % len];
         return this;
     }
 

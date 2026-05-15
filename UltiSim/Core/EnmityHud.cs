@@ -34,7 +34,23 @@ internal sealed unsafe class EnmityHud : IDisposable
     private const int StrEnemyName = 0;
     private const int StrCastname = 1;
 
+    // Real-time hysteresis so the list doesn't flap when an enemy's InEnemyList
+    // flips briefly (e.g. SetModelState's transient DisableDraw + pendingDraw
+    // window, or a one-frame visibility blip during a cast). ShowDelay also lets
+    // a warp-in animation land before the row appears.
+    private const float ShowDelay = 0.7f;
+    private const float HideDelay = 1.4f;
+
+    private sealed class SlotState
+    {
+        public bool EffectiveInList;
+        public float Timer; // seconds remaining until EffectiveInList flips to match raw
+    }
+
     private readonly SimEnemy?[] slotEnemies = new SimEnemy?[EnemyListSize];
+    private readonly Dictionary<SimEnemy, SlotState> states = new();
+    private readonly HashSet<SimEnemy> seenThisFrame = new();
+    private readonly List<SimEnemy> staleBuffer = new();
     private bool wasActive;
 
     public EnmityHud()
@@ -49,17 +65,64 @@ internal sealed unsafe class EnmityHud : IDisposable
 
     // Snapshot which enemies should occupy each addon slot. Called from
     // SimWorld.Tick once per frame; OnPreRequestedUpdate reads slotEnemies later
-    // in the same frame to populate the addon arrays.
-    public void Refresh(IEnumerable<SimEnemy> enemies)
+    // in the same frame to populate the addon arrays. deltaSeconds is real time
+    // (not scenario-scaled) — the debounce is for visual polish, not mechanics.
+    public void Refresh(IEnumerable<SimEnemy> enemies, float deltaSeconds)
     {
         Array.Clear(slotEnemies);
+        seenThisFrame.Clear();
         var written = 0;
+
         foreach (var e in enemies)
         {
-            if (written >= EnemyListSize) break;
-            if (!e.InEnemyList) continue;
-            if (!e.IsAlive) continue;
-            slotEnemies[written++] = e;
+            seenThisFrame.Add(e);
+
+            // Despawned: drop the row immediately. The EntityId / cast info / HP
+            // we'd otherwise show during a HideDelay would all be stale.
+            if (!e.IsAlive)
+            {
+                states.Remove(e);
+                continue;
+            }
+
+            if (!states.TryGetValue(e, out var st))
+            {
+                st = new SlotState { EffectiveInList = false, Timer = 0f };
+                states[e] = st;
+            }
+
+            var raw = e.InEnemyList;
+            if (raw != st.EffectiveInList)
+            {
+                if (st.Timer <= 0f)
+                    st.Timer = raw ? ShowDelay : HideDelay;
+                st.Timer -= deltaSeconds;
+                if (st.Timer <= 0f)
+                {
+                    st.EffectiveInList = raw;
+                    st.Timer = 0f;
+                }
+            }
+            else
+            {
+                // Raw matched effective again (or never differed) — cancel any
+                // in-flight flip so a flicker doesn't accumulate toward a flip.
+                st.Timer = 0f;
+            }
+
+            if (st.EffectiveInList && written < EnemyListSize)
+                slotEnemies[written++] = e;
+        }
+
+        // Drop entries for enemies that vanished from the iteration (e.g. scenario
+        // reset removed them from SimWorld.children). Avoid LINQ to keep this
+        // allocation-free in steady state.
+        if (states.Count > seenThisFrame.Count)
+        {
+            staleBuffer.Clear();
+            foreach (var k in states.Keys)
+                if (!seenThisFrame.Contains(k)) staleBuffer.Add(k);
+            foreach (var k in staleBuffer) states.Remove(k);
         }
 
         // The PreRequestedUpdate hook only fires when the engine sees a
@@ -75,6 +138,9 @@ internal sealed unsafe class EnmityHud : IDisposable
     public void Clear()
     {
         Array.Clear(slotEnemies);
+        states.Clear();
+        seenThisFrame.Clear();
+        staleBuffer.Clear();
         wasActive = false;
     }
 

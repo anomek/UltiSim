@@ -1,105 +1,159 @@
-using System;
-using System.Numerics;
-using UltiSim.Core;
+﻿using System.Collections.Generic;
 
 namespace UltiSim.Scenarios.Top.P5Sigma;
 
-// Phase-specific raw IDs and tunables for the TOP P5 Sigma scenario. IDs that
-// also exist in TOP P5 Delta (or any other TOP phase) live in TopConstants —
-// reach for them via the fully-qualified path `TopConstants.<Group>.<Const>`.
-//
-// Sourced from logs/pulls/TOP_pull_05_clear.log fragment 2026-05-05T01:23:02.7
-// (sigma start - 2s) -> 2026-05-05T01:24:13.4 (Omega-M targetable=01).
-internal static class TopP5SigmaConstants
+public static class TopP5SigmaConstants
 {
     public static class BNpcBaseId
     {
-        public const uint OmegaMClone = 15721;        // Omega-M intercardinal clones (4000A72B / 4000A72D);
-                                                      // boss-rank starter is TopConstants.BNpcBaseId.StarterOmega
-        public const uint OmegaFClone = 15722;        // Omega-F clones (4000A72A / 4000A72C)
-        public const uint RearPowerUnit = 15706;      // Rear Lasers caster — TODO: confirm against sheet
+        public const uint Omega = 15724;
+        public const uint OmegaM = 15720;
+        public const uint OmegaM_233C = 9020;
+        public const uint Omega_394D = 14669;
+        public const uint RearPowerUnit = 15723;
+        public const uint RightArmUnit = 15719;
     }
 
     public static class BNpcNameId
     {
+        public const uint Omega = 7695;
         public const uint OmegaF = 12258;
+        public const uint OmegaM = 12257;
+        public const uint Omega_1DD4 = 7636;
+        public const uint RearPowerUnit = 7639;
+        public const uint RightArmUnit = 7638;
+    }
+
+    public static class EObjId
+    {
+        public const uint EventObj1EA1A1 = 2007457;
+        public const uint TowerTimer = 2013244;
+        public const uint TowerSolo = 2013245;
+        public const uint TowerPair = 2013246;
     }
 
     public static class ActionId
     {
-        public const uint RunMiSigmaVersion = 32788;        // 0x8014 — Omega-M, 4.7s cast
-        public const uint Unknown7C01 = 31745;              // 0x7C01 — Omega-M instant; TODO identify
-        public const uint Unknown7B42 = 31554;              // 0x7B42 — Omega-M instant; TODO identify
-        public const uint ProgramLoop = 31640;              // 0x7B98 — sigma helper, the loop visual
-        public const uint WaveCannon = 31603;               // 0x7B73 — spinner cast (7.7s)
-        public const uint WaveCannonHit = 31604;            // 0x7B74 — tower-target wave-cannon hit
-        public const uint SubjectSimulationF = 32559;       // 0x7F2F — Omega-M -> Omega-F transition
-        public const uint Unknown7F30 = 32560;              // TODO identify
-        public const uint Unknown7B14 = 31508;              // 0x7B14 — Omega-M clone instant; TODO
-        public const uint Unknown7B15 = 31509;              // 0x7B15 — Omega clone instant; TODO
-        public const uint Unknown7B16 = 31510;              // 0x7B16 — Omega-M instant; TODO
-        public const uint Unknown7B20 = 31520;              // 0x7B20 — Omega-M instant; TODO
-        public const uint Unknown7B43 = 31555;              // 0x7B43 — Omega-M instant; TODO
-        public const uint HyperPulse = 31602;               // 0x7B72 — Right Arm Unit rect AOE
-        public const uint Discharger = 31534;               // 0x7B2E — Omega-M, instant, knockback raidwide
-        public const uint StorageViolationStack = 31493;    // 0x7B05 — 2-target stack
-        public const uint StorageViolationSpread = 31492;   // 0x7B04 — 1-target spread
-        public const uint RearLasersStart = 31631;          // 0x7B8F — Rear Power Unit, first tick
-        public const uint RearLasersTick = 31632;           // 0x7B90 — repeating ticks
-        public const uint SuperliminalSteel = 31530;        // 0x7B2A — Omega-M, 1.2s cast
-        public const uint SuperliminalSteelLeft = 31532;    // 0x7B2C — Omega-F left variant
-        public const uint SuperliminalSteelRight = 31531;   // 0x7B2B — Omega-F right variant
+        public const uint BallisticImpact = 0x7B0CU;
+        public const uint BeyondDefense = 0x7B27U;
+        public const uint BeyondDefense_7B28 = 0x7B28U;
+        public const uint CriticalOverflowBug = 0x7B57U;
+        public const uint CriticalSynchronizationBug = 0x7B56U;
+        public const uint Discharger = 0x7B2EU;
+        public const uint FlameThrower = 0x7E70U;
+        public const uint HelloDistantWorld = 0x8111U;
+        public const uint HelloDistantWorld_8110 = 0x8110U;
+        public const uint HelloNearWorld = 0x7B89U;
+        public const uint HelloNearWorld_7B8A = 0x7B8AU;
+        public const uint HighPoweredSniperCannon = 0x7B54U;
+        public const uint HyperPulse = 0x7B70U;
+        public const uint HyperPulse_7B71 = 0x7B71U;
+        public const uint HyperPulse_7B72 = 0x7B72U;
+        public const uint OptimizedFireIII = 0x7B2FU;
+        public const uint OversampledWaveCannon = 0x7B6DU;
+        public const uint Patch = 0x7B63U;
+        public const uint PilePitch = 0x7B29U;
+        public const uint ProgramLoop = 0x7B98U;
+        public const uint RearLasers = 0x7B8FU;
+        public const uint RearLasers_7B90 = 0x7B90U;
+        public const uint RunMiDeltaVersion = 0x7B88U;
+        public const uint RunMiSigmaVersion = 0x8014U;
+        public const uint SniperCannon = 0x7B53U;
+        public const uint SolarRay = 0x81ACU;
+        public const uint SolarRay_7B01 = 0x7B01U;
+        public const uint StorageViolation = 0x7B05U;
+        public const uint StorageViolation_7B04 = 0x7B04U;
+        public const uint SubjectSimulationF = 0x7F2FU;
+        public const uint SuperliminalSteel = 0x7B2AU;
+        public const uint OptimizedBlizzard = 0x7B2D; 
+        public const uint SuperliminalSteel_7B2B = 0x7B2BU;
+        public const uint SuperliminalSteel_7B2C = 0x7B2CU;
+        public const uint Unknown7b14 = 0x7B14U;
+        public const uint Unknown7b15 = 0x7B15U;
+        public const uint Unknown7b16 = 0x7B16U;
+        public const uint Unknown7b20 = 0x7B20U;
+        public const uint Teleport7b42 = 0x7B42U;
+        public const uint Teleport7b43 = 0x7B43U;
+        public const uint Unknown7b85 = 0x7B85U;
+        public const uint Unknown7c01 = 0x7C01U;
+        public const uint Unknown7f30 = 0x7F30U;
+        public const uint WaveCannon = 0x7B73U;
+        public const uint WaveCannonKyrios = 0x7B11U;
+        public const uint WaveCannon_7B74 = 0x7B74U;
+        public const uint WaveCannon_7B80 = 0x7B80U;
     }
 
     public static class StatusId
     {
-        public const ushort MidGlitch = 3427;         // 0xD63 — Sigma tether per-side debuff, 32s; applied to all 8 players ~0.7s before the type-35 visual
-        public const ushort HelloNearWorld = 3442;    // 0xD72 — applied at t=10.1, 56s; expires → initial near puddle drops on holder
-        public const ushort HelloFarWorld = 3443;     // 0xD73 — applied at t=10.1, 56s; expires → initial distant puddle drops on holder
-        public const ushort Looper = 3456;            // 0xD80 — applied to all 8 players ~0.7s after ProgramLoop cast, 18s
+        public const ushort HelloDistantWorld = (ushort)0xD73;
+        public const ushort HelloNearWorld = (ushort)0xD72;
+        public const ushort Looper = (ushort)0xD80;
+        public const ushort MagicVulnerabilityUp = (ushort)0xB7D;
+        public const ushort MagicVulnerabilityUp_DBC = (ushort)0xDBC;
+        public const ushort MidGlitch = (ushort)0xD63;
+        public const ushort FarGlitch = (ushort)0xD64;
+        public const ushort OmegaF = (ushort)0x68B;
+        public const ushort OmegaM = (ushort)0x68A;
+        public const ushort QuickeningDynamis = (ushort)0xD74;
+        public const ushort Superfluid = (ushort)0x68C;
+        public const ushort ThriceComeRuin = (ushort)0x9E2;
+        public const ushort TwiceComeRuin = (ushort)0x9E6;
+        public const ushort VulnerabilityUp = (ushort)0xD26;
     }
 
     public static class TetherId
     {
-        public const ushort SigmaPair = 222;          // 0x00DE — 4 player-to-player pairs at t=10.1
-        public const ushort HyperPulseBait = 17;      // 0x0011 — Right Arm Unit bait tether
+        public const ushort AutoTarget = (ushort)0x11;
+        public const ushort Glitch = (ushort)0xDE;
+    }
+
+    public static class TimelineId
+    {
+        public const ushort Spawn = (ushort)0x1E43;
+        public const ushort WarpOut = (ushort)0x1E39;
     }
 
     public static class LockonId
     {
-        // PlayStation head markers — one shape per Sigma tether pair, applied to
-        // both members. Source: TOP_pull_05_clear.log type-27 rows at 01:23:12.791
-        // immediately following the four type-35 (Sigma tether) rows.
-        public const uint PairTriangle = 416;         // 0x01A0 — pair 0
-        public const uint PairCircle   = 417;         // 0x01A1 — pair 1
-        public const uint PairSquare   = 418;         // 0x01A2 — pair 2
-        public const uint PairCross    = 419;         // 0x01A3 — pair 3
+        public const uint PlaystationX = 419;
+        public const uint PlaystationSq = 418;
+        public const uint PlaystationO = 416;
+        public const uint PlaystationTr = 417;
+        
+        public const uint X_9C = 156;
+        public const uint X_9D = 157;
+        public const uint WaveCannon = 244;
 
-        public const uint WaveCannon   = 244;         // 0x00F4 — spinner Wave Cannon target marker (6 of 8 players at 01:23:22.987)
+        public static readonly IReadOnlyList<uint> Playstation = [PlaystationX, PlaystationSq, PlaystationO, PlaystationTr];
+    }
+    
+    public static class KnockbackId
+    {
+        public const uint Discharger = 72;
     }
 
     public static class Geometry
     {
-        // Sigma tether (Mid Glitch) safe-distance band. Vulnerability Up applies
-        // when paired players are outside [Min, Max] and is removed when they
-        // re-enter. Bounds derived from the TOP_pull_05_clear log by reading
-        // the pair distance at every D26 (Vulnerability Up) apply event:
-        //
-        //   too-close apply edges (t=11.10, all pairs stacked at start):
-        //     A 2.53,  B 7.11,  C 6.91,  D 4.97  → safe-min boundary > 7.11
-        //   too-far apply edges (t=31.23–33.51, pairs spread):
-        //     A 23.33, B 21.60, C 23.44, D 23.53 → safe-max boundary < 21.60
-        //
-        // So the in-fight safe band is somewhere inside (7.11, 21.60). Setting
-        // bounds just outside the observed apply edges so the sim's punishment
-        // zone matches the observed punishment zone with minimal over-extension.
-        public const float SigmaTetherMinDistance = 8f;
-        public const float SigmaTetherMaxDistance = 21f;
-    }
+        public const float MidGlitchMinDistance = 21f; // no idea how accurate this is
+        public const float MidGlitchMaxDistance = 26f; // fine-tuned to be just right for towers and "in front of marker" position
+        public const float FarGlitchMinDistance = 34f; // fine-tuned to be just right for towers
+        public const float TowerRadius = 3f;
 
-    public static class Durations
+        // Superliminal Steel: each leg blade is one rect; together they form
+        // opposing bands flanking Omega-F's facing axis. The SAFE strip
+        // perpendicular to her facing is ~8m wide (4m half-width).
+        public const float SuperliminalSteelSafeHalfWidth = 4f;
+
+        // Optimized Blizzard III: + cross through Omega-F. Each arm matches
+        // Superliminal Steel's blade width.
+        public const float OptimizedBlizzardArmHalfWidth = 4f;
+
+        // Both Omega-F attacks reach the arena edge in this phase.
+        public const float OmegaFAttackHalfLength = 25f;
+    }
+    
+    public static class Duration
     {
-        public const float HelloWorldDebuff = 56f;    // log: D72/D73 apply 01:23:12.79, remove 01:24:08.787
-        public const float Looper = 18f;              // log: D80 apply 01:23:29.357, sheet duration 18s
+        public const float OmegaFAttackOmenDelay = 0.6f;
     }
 }

@@ -1,8 +1,8 @@
 {
     "Author": "Anomek",
     "Name": "UltiSim",
-    "Punchline": "Simulate ultimate raid mechanics solo.",
-    "Description": "Spawns fake party members and bosses client-side so you can practice ultimate raid mechanics without a full party. Currently implements The Omega Protocol (Ultimate) P5 Delta.",
+    "Punchline": "Simulate ultimate raid mechanics solo. Go to inn and start practice. WARNING: restart game after practice",
+    "Description": "Spawns fake party members and bosses client-side so you can practice ultimate raid mechanics without a full party. This plugin is in beta and is unstable. You won't crash during your training sessions, but you will crash after it. If you are doing any serious content: **RESTART YOUR GAME AFTER USING PLUGIN**. You **WILL CRASH** in the middle of pull.",
     "RepoUrl": "https://github.com/anomek/UltiSim",
     "Tags": [
         "ultimate",

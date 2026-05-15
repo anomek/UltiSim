@@ -46,12 +46,11 @@ internal static class TopP5DeltaConstants
         public const uint OversampledWaveCannonLeft = 31639;  // arm unit cone variant — left side
         public const uint HwTetherBreak = 31587;              // Helper->self, no cast, range 100 circle — raidwide hit on tether break
         public const uint HwTetherFail = 32505;               // Helper->self, no cast, range 100 circle — wipe when a tether expires unbroken
-        public const uint HelloWorldFail = 0;                 // TODO: find action ID — wipe cast fired on any Hello World puddle-chain failure
     }
 
     public static class TimelineId
     {
-        public const ushort RocketPunchSpawn = 1340; // TODO: not the actual canon spawn-in.
+        public const ushort RocketPunchSpawn = 1340;
     }
 
     public static class TetherId
@@ -68,8 +67,6 @@ internal static class TopP5DeltaConstants
         public const ushort HWPrepRemoteTether = 3441; // 'remote code smell'
         public const ushort HWLocalTether = 3529;      // 'local regression'
         public const ushort HWRemoteTether = 3530;     // 'remote regression'
-        public const ushort HelloNearWorld = 3442;     // 'Hello, Near World'
-        public const ushort HelloFarWorld = 3443;      // 'Hello, Distant World'
         public const ushort PlayerMonitorRight = 3452;
         public const ushort PlayerMonitorLeft = 3453;
         public const ushort TwiceComeRuin = 2534;      // pre-existing — any stack lethal

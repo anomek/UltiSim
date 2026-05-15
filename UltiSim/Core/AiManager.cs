@@ -6,9 +6,9 @@ using UltiSim.Core.SimObjects;
 namespace UltiSim.Core;
 
 // Drives slot-ordered party movement from a scenario's position functions.
-// Owns jitter, run speed, event scheduling, and local→world coordinate conversion.
-// Position functions return an AiMove whose entries are scenario-local XZ coords;
-// AiManager adds ScenarioOrigin and sets Y from origin. Eye-spawn flip and slot
+// Owns jitter, run speed, and event scheduling. Position functions return an
+// AiMove whose entries are scenario-local XZ coords — same space MoveTo
+// consumes, so AiManager forwards them as-is. Eye-spawn flip and slot
 // reordering are handled inside the AiMove before it reaches here.
 public sealed class AiManager
 {
@@ -25,20 +25,46 @@ public sealed class AiManager
 
     // Schedule a slot-move at `time`. `positions` is evaluated at fire-time;
     // null entries in the returned AiMove are skipped (no movement that slot).
-    public void Move(float time, Func<AiMove> positions, float jitter = DefaultJitter)
+    // When `arrivalTime` > 0, each member's MoveTo is deferred so they arrive at
+    // the destination at scenario-time `arrivalTime` (running at RunSpeed). If a
+    // member is too far to make it in time, it falls back to leaving immediately
+    // and arriving late.
+    public void Move(float time, Func<AiMove> positions, float jitter = DefaultJitter, float arrivalTime = 0f)
     {
         world.Events.Add(time, () =>
         {
             var move = positions();
-            var origin = world.ScenarioOrigin;
             for (int i = 0; i < 8; i++)
             {
                 if (move[i] is not { } local) continue;
                 var member = world.Party.Get(i);
                 if (member is not { IsAlive: true }) continue;
-                var target = new Vector3(origin.X + local.X, origin.Y, origin.Z + local.Y);
-                member.MoveTo(Jitter(target, jitter), RunSpeed);
+                var target = Jitter(new Vector3(local.X, 0f, local.Y), jitter);
+
+                if (arrivalTime > 0f)
+                {
+                    var dx = target.X - member.Position.X;
+                    var dz = target.Z - member.Position.Z;
+                    var delay = arrivalTime - time - MathF.Sqrt(dx * dx + dz * dz) / RunSpeed;
+                    if (delay > 0f)
+                    {
+                        world.Events.Add(delay, () => member.MoveTo(target));
+                        continue;
+                    }
+                }
+                member.MoveTo(target);
             }
+        });
+    }
+
+    public void Automarker(float time, Func<Dictionary<PartyRole, Sign>> mapping)
+    {
+        world.Events.Add(time, () =>
+        {
+            Markings.ClearAll();
+            foreach (var (role, sign) in mapping())
+                if (world.Party.Get(role) is { IsAlive: true } member)
+                    Markings.Set(sign, member.GameObjectId);
         });
     }
 

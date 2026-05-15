@@ -40,6 +40,8 @@ public unsafe class MainWindow : Window, IDisposable
     private string debugDirectorCategoryText = "0x8000001E";
     private string debugDirectorArg1Text = "0x2AC";
     private string debugBgmIdText = "964";
+    // EObj 1EB83C (decimal 2013244) = the TOP P5 Sigma falling-orb tower; useful default.
+    private string debugEObjRowIdText = "2013244";
 #endif
 
     public MainWindow(Plugin plugin)
@@ -272,6 +274,30 @@ public unsafe class MainWindow : Window, IDisposable
         }
 
         ImGui.Spacing();
+        ImGui.TextUnformatted("Manual EObj spawn");
+        ImGui.Separator();
+        ImGui.SetNextItemWidth(120);
+        ImGui.InputText("EObjRowId", ref debugEObjRowIdText, 16);
+        if (ImGui.Button("Spawn EObj"))
+        {
+            if (!TryParseId(debugEObjRowIdText, out var eObjRowId))
+            {
+                Plugin.Log.Warning($"Spawn EObj: can't parse EObjRowId '{debugEObjRowIdText}'");
+            }
+            else
+            {
+                // Same anchor trick as the BNpc spawn — drop the prop at the
+                // player's feet by stamping ScenarioOrigin. Scenarios overwrite
+                // this in Game.RunScenarioInternal.
+                var player = Plugin.ObjectTable.LocalPlayer;
+                if (player != null) plugin.Game.World.ScenarioOrigin = player.Position;
+                plugin.Game.World.SpawnEventObject(new EventObjectSpawnConfig(
+                    EObjRowId: eObjRowId,
+                    IsVisible: true));
+            }
+        }
+
+        ImGui.Spacing();
         ImGui.TextUnformatted("Play animation on target");
         ImGui.Separator();
         ImGui.SetNextItemWidth(120);
@@ -386,6 +412,9 @@ public unsafe class MainWindow : Window, IDisposable
         ImGui.SameLine();
         if (ImGui.Button("Enumerate SharedGroups"))
             DumpSharedGroups();
+        ImGui.SameLine();
+        if (ImGui.Button("Bump EObj State"))
+            BumpEventObjectState();
 
         ImGui.Spacing();
         ImGui.TextUnformatted("Map effect");
@@ -726,6 +755,24 @@ public unsafe class MainWindow : Window, IDisposable
         rows.Sort((a, b) => a.Dist.CompareTo(b.Dist));
         Plugin.Log.Info($"=== SharedGroups in active layout: {total} ===");
         foreach (var (_, line) in rows) Plugin.Log.Info(line);
+    }
+
+    // Cycles SetState(N) across every live SimEventObject in the world, where
+    // N increments each click. SGs gate sub-instance visibility on this state
+    // field — we use this to find empirically which value activates a given
+    // EObj's hidden visuals (e.g., the P5 Sigma tower ground circles).
+    private static short eventObjectStateProbe;
+    private void BumpEventObjectState()
+    {
+        eventObjectStateProbe++;
+        int n = 0;
+        foreach (var child in plugin.Game.World.Children)
+        {
+            if (child is not SimEventObject eo || !eo.IsAlive) continue;
+            eo.SetState(eventObjectStateProbe);
+            n++;
+        }
+        Plugin.Log.Info($"Bumped EObj state to {eventObjectStateProbe} on {n} SimEventObjects");
     }
 #endif
 }

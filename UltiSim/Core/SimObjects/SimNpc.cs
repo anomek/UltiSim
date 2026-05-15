@@ -14,6 +14,7 @@ public unsafe class SimNpc : SimPartySlot
     public const uint InvalidIndex = 0xFFFFFFFF;
 
     public uint Index { get; private set; }
+    protected readonly SimWorld world;
     private bool pendingDraw;
     private float pendingDespawnTimer = -1f;
     private Vector3? moveTarget;
@@ -27,9 +28,10 @@ public unsafe class SimNpc : SimPartySlot
     // base animation slot to play it while we drive position via SetPosition.
     public const ushort DefaultRunTimelineId = 22;
 
-    protected SimNpc(uint index)
+    protected SimNpc(uint index, SimWorld world)
     {
         Index = index;
+        this.world = world;
         pendingDraw = index != InvalidIndex;
     }
 
@@ -43,18 +45,19 @@ public unsafe class SimNpc : SimPartySlot
         chara->Timeline.PlayActionTimeline(timelineId);
     }
 
-    // Writes Timeline.ModelState then forces a draw rebuild via DisableDraw +
-    // deferred EnableDraw. UpdateRender (vfunc 4) and NotifyTransformChanged
-    // (dirty-flag) were both tried first and didn't trigger a visual commit;
-    // the proven path is the same DisableDraw + pendingDraw shape that
-    // SetModelCharaId uses — the Tick reconciler at the bottom of this file
-    // re-enables once IsReadyToDraw flips true again. Cost is one Tick of
-    // invisibility on every commit, which is acceptable at well-defined
-    // 003F packet timestamps.
+    // Writes Timeline.ModelState. The redraw rebuild is what makes the change
+    // visible — but doing it on every call flickers the model, so it's gated
+    // on "value actually changes." 003F is the engine's commit packet in the
+    // shield-toggle sequence, and SetModeAttributeFlags (the 0031 sibling)
+    // stays a bare write so the rebuild here picks up both fields in one go.
+    // Tried lighter alternatives (CopyFromCharacter, UpdateRender,
+    // NotifyTransformChanged, PacketDispatcher.HandleActorControlPacket) —
+    // none commit visibly on a client-spawned doppel.
     public void SetModelState(byte value)
     {
         var chara = GetBattleChara();
         if (chara == null) return;
+        if (chara->Timeline.ModelState == value) return;
         var obj = (GameObject*)chara;
         obj->DisableDraw();
         chara->Timeline.ModelState = value;
@@ -75,10 +78,10 @@ public unsafe class SimNpc : SimPartySlot
     // Timeline.ModelState), 0x0197 = PlayActionTimeline. Empirically verified
     // on Omega-M's Synthetic Shield: ModeAttributeFlags 0x10 -> 0x31 and
     // ModelState 0x00 -> 0x04 are the only fields that change when the shield
-    // becomes visible. Both setters force a draw rebuild via DisableDraw +
-    // pendingDraw -> deferred EnableDraw; the lighter UpdateRender and
-    // NotifyTransformChanged paths were tried first and did not commit the
-    // change visually.
+    // becomes visible. Only SetModelState triggers the DisableDraw +
+    // pendingDraw rebuild (003F is the commit packet, fires once per
+    // transition); SetModeAttributeFlags stays a bare write to avoid
+    // mid-cast flicker from the transient 0031 params.
     public void ApplyPoseChange(byte modelState, byte animStateHi, byte animStateLo, ushort commitTimelineId)
     {
         var chara = GetBattleChara();
@@ -93,14 +96,16 @@ public unsafe class SimNpc : SimPartySlot
         chara->Timeline.PlayActionTimeline(commitTimelineId);
     }
 
+    // Bare write — no draw rebuild. The 0031 packets fire 2-3 times per cast
+    // with transient mid-values (e.g. 0x11 at animation-start, 0x31 at
+    // animation-end); rebuilding on each would flicker the boss during the
+    // cast. SetModelState (the trailing 003F packet) does the rebuild for the
+    // whole sequence, by which point ModeAttributeFlags has its final value.
     public void SetModeAttributeFlags(byte value)
     {
         var chara = GetBattleChara();
         if (chara == null) return;
-        var obj = (GameObject*)chara;
-        obj->DisableDraw();
         chara->ModelContainer.ModeAttributeFlags = value;
-        pendingDraw = true;
     }
 
     // Disables draw, writes the new ModelCharaId, and defers EnableDraw to the
@@ -130,10 +135,9 @@ public unsafe class SimNpc : SimPartySlot
         var chara = GetBattleChara();
         if (chara == null) return;
         var obj = (GameObject*)chara;
-        // obj->DisableDraw();
+        obj->DisableDraw();
         chara->TransformationId = transformationId;
-        // obj->GetDrawObject()->UpdateRender();
-        // pendingDraw = true;
+        pendingDraw = true;
     }
 
     public uint EntityId
@@ -154,24 +158,6 @@ public unsafe class SimNpc : SimPartySlot
         }
     }
 
-    public override Vector3 Position
-    {
-        get
-        {
-            var obj = GetGameObject();
-            return obj == null ? default : obj->Position;
-        }
-    }
-
-    public override float Rotation
-    {
-        get
-        {
-            var obj = GetGameObject();
-            return obj == null ? 0f : obj->Rotation;
-        }
-    }
-
     public override float HitboxRadius
     {
         get
@@ -188,34 +174,33 @@ public unsafe class SimNpc : SimPartySlot
     // visible model to snap.
     public override void SetPosition(Vector3 position)
     {
+        base.SetPosition(position);
         var obj = GetGameObject();
         if (obj == null) return;
-        obj->SetPosition(position.X, position.Y, position.Z);
-        if (obj->DrawObject != null) obj->DrawObject->Object.Position = position;
+        var w = world.ToWorld(position);
+        obj->SetPosition(w.X, w.Y, w.Z);
+        if (obj->DrawObject != null) obj->DrawObject->Object.Position = w;
     }
 
     public override void SetPosition(Placement placement)
     {
+        base.SetPosition(placement);
         var obj = GetGameObject();
         if (obj == null) return;
-        obj->SetPosition(placement.Position.X, placement.Position.Y, placement.Position.Z);
-        obj->SetRotation(MathUtil.NormalizeRotation(placement.Rotation));
-        if (obj->DrawObject != null) obj->DrawObject->Object.Position = placement.Position;
+        var w = world.ToWorld(placement.Position);
+        obj->SetPosition(w.X, w.Y, w.Z);
+        obj->SetRotation(Rotation);
+        if (obj->DrawObject != null) obj->DrawObject->Object.Position = w;
     }
 
     // Snaps the NPC's facing toward `target` on the XZ plane. No-op when the
     // target is at the same XZ position. Does not affect movement state.
-    public void Face(Vector3 target)
+    public override void Face(Vector3 target)
     {
+        base.Face(target);
         var obj = GetGameObject();
-        if (obj == null) return;
-        var dx = target.X - obj->Position.X;
-        var dz = target.Z - obj->Position.Z;
-        if (dx * dx + dz * dz < 1e-6f) return;
-        obj->SetRotation(MathUtil.NormalizeRotation(MathF.Atan2(dx, dz)));
+        if (obj != null) obj->SetRotation(Rotation);
     }
-
-    public void Face(IPositioned target) => Face(target.Position);
 
     // Plays `timelineId` immediately and despawns after `delay` seconds. No-op
     // when already despawned. Useful for warp-out / death animations.
@@ -270,6 +255,18 @@ public unsafe class SimNpc : SimPartySlot
 
     public override void Tick(float deltaSeconds)
     {
+        // Re-sync stored Position/Rotation from the native struct before any
+        // tick logic runs. Catches drift from anything that touched the
+        // BattleChara directly last frame (engine animation, direct-write
+        // helpers like SimEnemy.FaceCastTarget) so same-frame readers further
+        // down see the visible-world value.
+        var native = GetGameObject();
+        if (native != null)
+        {
+            Position = world.ToLocal(native->Position);
+            Rotation = native->Rotation;
+        }
+
         base.Tick(deltaSeconds);
 
         if (pendingDraw)

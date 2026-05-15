@@ -3,7 +3,7 @@
 
   <PropertyGroup>
     <Authors>Anomek</Authors>
-    <Version>0.0.0.1</Version>
+    <Version>0.1.0.0</Version>
     <Description>Simulate ultimate raid mechanics solo client-side</Description>
     <RootNamespace>UltiSim</RootNamespace>
     <PackageProjectUrl>https://github.com/anomek/UltiSim</PackageProjectUrl>
@@ -11,9 +11,5 @@
     <IsPackable>false</IsPackable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
-
-  <ItemGroup>
-    <Folder Include="Scenarios\Top\P5\" />
-  </ItemGroup>
 
 </Project>

@@ -33,7 +33,7 @@ internal static unsafe class PartyCreator
 
     private static readonly Random Rng = new();
 
-    public static void Populate(SimParty party, SimPlayer player, uint playerJob, Vector3 origin)
+    public static void Populate(SimParty party, SimPlayer player, uint playerJob, SimWorld world)
     {
         var presets = PartyPresets.ForPlayerJob(playerJob);
         var itemSheet = Plugin.DataManager.GetExcelSheet<Item>();
@@ -55,13 +55,12 @@ internal static unsafe class PartyCreator
             var angle = (i / (float)presets.Count) * MathF.Tau
                         + ((float)Rng.NextDouble() - 0.5f) * AngleJitter;
             var distance = RingRadius + ((float)Rng.NextDouble() - 0.5f) * RadiusJitter;
-            var pos = new Vector3(
-                origin.X + MathF.Sin(angle) * distance,
-                origin.Y,
-                origin.Z + MathF.Cos(angle) * distance);
-            var facingPlayer = MathF.Atan2(origin.X - pos.X, origin.Z - pos.Z);
+            // Local ring around the scenario origin. Y stays at 0 (local floor);
+            // SimWorld.ToWorld lifts it to origin.Y at spawn.
+            var localPos = new Vector3(MathF.Sin(angle) * distance, 0f, MathF.Cos(angle) * distance);
+            var facingPlayer = MathF.Atan2(-localPos.X, -localPos.Z);
 
-            var member = Spawn(preset, (PartyRole)i, new Placement(pos, facingPlayer), itemSheet, registerInCharacterManager);
+            var member = Spawn(preset, world, (PartyRole)i, new Placement(localPos, facingPlayer), itemSheet, registerInCharacterManager);
             if (member != null) party.SetSlot((PartyRole)i, member);
         }
     }
@@ -83,13 +82,13 @@ internal static unsafe class PartyCreator
                && row.TerritoryIntendedUse.RowId == (uint)TerritoryIntendedUse.Inn;
     }
 
-    private static SimPartyMember? Spawn(PartyMemberPreset preset, PartyRole role, Placement placement, ExcelSheet<Item> itemSheet, bool registerInCharacterManager)
+    private static SimPartyMember? Spawn(PartyMemberPreset preset, SimWorld world, PartyRole role, Placement placement, ExcelSheet<Item> itemSheet, bool registerInCharacterManager)
     {
         if (!BattleCharaSpawn.CreateBattleChara(out var idx, out var obj)) return null;
 
         var chara = (BattleChara*)obj;
         chara->ObjectKind = ObjectKind.Pc;
-        chara->Position = placement.Position;
+        chara->Position = world.ToWorld(placement.Position);
         chara->Rotation = MathUtil.NormalizeRotation(placement.Rotation);
         chara->Scale = 1f;
         chara->ModelContainer.ModelCharaId = 0;
@@ -132,7 +131,12 @@ internal static unsafe class PartyCreator
             BattleCharaSpawn.RegisterInCharacterManager(chara);
 
         Plugin.Log.Info($"PartyCreator: spawned {preset.Name} ({role}, job {preset.ClassJob}) at index {idx}");
-        return new SimPartyMember(idx, role, preset.ClassJob, preset.Name, registerInCharacterManager);
+        var member = new SimPartyMember(idx, world, role, preset.ClassJob, preset.Name, registerInCharacterManager);
+        // Seed the stored Position/Rotation to match the spawn placement so
+        // anything reading SimCharacter.Position before the first Tick sees
+        // the correct value (the Tick re-sync only kicks in next frame).
+        member.SetPosition(placement);
+        return member;
     }
 
     private static void WriteCustomize(BattleChara* chara)

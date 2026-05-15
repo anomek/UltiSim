@@ -22,8 +22,13 @@ public abstract unsafe class SimCharacter : ISimObject, IPositioned
 
     internal abstract BattleChara* BattleCharaPtr { get; }
     public abstract GameObjectId GameObjectId { get; }
-    public abstract Vector3 Position { get; }
-    public abstract float Rotation { get; }
+    // Authoritative store for the character's scenario-local pose. Mutators
+    // (SetPosition / SetPosition(Placement) / Face) write here; subclasses
+    // that back a native BattleChara push the same values to the native struct
+    // and re-sync these fields from native at the start of each Tick so
+    // engine-driven drift (player input, server corrections) lands here too.
+    public Vector3 Position { get; protected set; }
+    public float Rotation { get; protected set; }
     public abstract float HitboxRadius { get; }
     public Placement Placement => new(Position, Rotation);
 
@@ -47,14 +52,32 @@ public abstract unsafe class SimCharacter : ISimObject, IPositioned
     // site than reaching for Plugin.GameInstance.
     public void Die(string cause) => Plugin.GameInstance.Kill(this, cause);
 
-    // Movement is a no-op by default — only SimNpc has writable position because
-    // the real local player moves themselves. Scenarios call .MoveTo on a
-    // uniform SimCharacter without checking the concrete type; calls that land
-    // on SimPlayer are silently dropped. Override in SimNpc.
-    public virtual void SetPosition(Vector3 position) { }
-    public virtual void SetPosition(Placement placement) { }
+    // Default mutators write the stored Position/Rotation fields. Subclasses
+    // backed by a native BattleChara (SimNpc, SimEventObject-like) call base
+    // first to update the stored state, then push the same values to the
+    // native struct so the in-world entity moves visibly. MoveTo / StopMoving
+    // are state-machine entry points and stay virtual no-ops on the base —
+    // only SimNpc has the per-Tick stepping that needs them.
+    public virtual void SetPosition(Vector3 position) { Position = position; }
+    public virtual void SetPosition(Placement placement)
+    {
+        Position = placement.Position;
+        Rotation = MathUtil.NormalizeRotation(placement.Rotation);
+    }
     public virtual void MoveTo(Vector3 target, float speed = 6f, float? finalRotation = null, ushort timelineId = SimNpc.DefaultRunTimelineId) { }
     public virtual void StopMoving() { }
+
+    // Snaps facing toward `target` on the XZ plane. No-op when the target is
+    // at the same XZ position. Writes the stored Rotation; subclasses override
+    // to also push to the native struct.
+    public virtual void Face(Vector3 target)
+    {
+        var dx = target.X - Position.X;
+        var dz = target.Z - Position.Z;
+        if (dx * dx + dz * dz < 1e-6f) return;
+        Rotation = MathUtil.NormalizeRotation(MathF.Atan2(dx, dz));
+    }
+    public void Face(IPositioned target) => Face(target.Position);
 
     // Self-attached actor VFX keyed by path. Path is validated via FileExists before
     // spawning to avoid the file-thread crash StaticVfxCreate has on bad paths.

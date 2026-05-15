@@ -28,22 +28,31 @@ public sealed class SimWorld : ISimObject, IDisposable
     public EventScheduler Events { get; }
     public Vector3 ScenarioOrigin { get; set; }
 
+    // Translates between scenario-local coordinates (the SimXxx public API)
+    // and world coordinates (the engine's BattleChara->Position). Local zero
+    // is the snapshotted ScenarioOrigin; the transform is a pure translation,
+    // no rotation. Y is part of the offset, same as X/Z.
+    public Vector3 ToWorld(Vector3 local) => ScenarioOrigin + local;
+    public Vector3 ToLocal(Vector3 world) => world - ScenarioOrigin;
+    public Placement ToWorld(Placement local) => new(ToWorld(local.Position), local.Rotation);
+    public Placement ToLocal(Placement world) => new(ToLocal(world.Position), world.Rotation);
+
     public SimWorld(EventScheduler events)
     {
         Events = events;
     }
 
-    public SimTether Tether(SimCharacter a, SimCharacter b, ushort tetherId, float duration = 0f, ushort debuffStatusId = 0)
+    public SimTether Tether(SimCharacter? a, SimCharacter? b, ushort tetherId, float duration = 0f, ushort debuffStatusId = 0)
     {
         return Tether(a, () => b, tetherId, duration, debuffStatusId);
     }
 
-    public SimTether TetherFarestPlayer(SimCharacter a, ushort tetherId, float duration = 0f, ushort debuffStatusId = 0)
+    public SimTether TetherFarestPlayer(SimCharacter? a, ushort tetherId, float duration = 0f, ushort debuffStatusId = 0)
     {
-        return Tether(a, () => Party.Find.Farest(a.Position)!, tetherId, duration, debuffStatusId);
+        return Tether(a, () => a is null ? null : Party.Find.Farest(a.Position), tetherId, duration, debuffStatusId);
     }
     
-    public SimTether Tether(SimCharacter a, Func<SimCharacter> b, ushort tetherId, float duration = 0f, ushort debuffStatusId = 0)
+    public SimTether Tether(SimCharacter? a, Func<SimCharacter?> b, ushort tetherId, float duration = 0f, ushort debuffStatusId = 0)
     {
         var tether = new SimTether(a, b, tetherId, debuffStatusId, duration);
         children.Add(tether);
@@ -53,20 +62,30 @@ public sealed class SimWorld : ISimObject, IDisposable
     
     public SimEnemy? SpawnEnemy(EnemySpawnConfig config)
     {
-        var enemy = SimEnemy.Spawn(config, ScenarioOrigin, Events);
+        var enemy = SimEnemy.Spawn(config, this, Events);
         if (enemy != null) children.Add(enemy);
         return enemy;
     }
 
-    // Acquires an existing SharedGroup layout instance baked into the loaded
-    // zone (TOP arena tiles, the 1EA1A1 fixture, the Exit portal, etc.) and
-    // registers it for snapshot-restore teardown. Does NOT allocate.
-    // See SimEventObject / LayoutQuery for the discovery path.
-    public SimEventObject? AcquireEventObject(EventObjectAcquireConfig config)
+    // Allocates an EventObject actor in EventObjectManager's 40-slot pool and
+    // wires it to the given EObj sheet row. Mirror of SpawnEnemy for the EObj
+    // side of the engine — see SimEventObject / EventObjectSpawn for details.
+    public SimEventObject? SpawnEventObject(EventObjectSpawnConfig config)
     {
-        var eo = SimEventObject.Acquire(config, ScenarioOrigin, Events);
+        var eo = SimEventObject.Spawn(config, this, Events);
         if (eo != null) children.Add(eo);
         return eo;
+    }
+
+    // EventObject tower variant — picks `states[count]` each tick based on how
+    // many party members stand within `radius` of the EObj (counts past the
+    // array length clamp to the last entry). Bound to the current Party so AI
+    // and scenario movement drive the visual.
+    public SimTower? SpawnTower(EventObjectSpawnConfig config, short[] states, float radius)
+    {
+        var tower = SimTower.Spawn(config, this, Events, states, radius, Party);
+        if (tower != null) children.Add(tower);
+        return tower;
     }
 
     // Places the scenario's waymark layout. Coordinates are scenario-relative;
@@ -87,7 +106,7 @@ public sealed class SimWorld : ISimObject, IDisposable
     // Per-frame arena fence at `radius` from ScenarioOrigin. Kills any active
     // party member (player included) who leaves the ring, and spawns a VFX border.
     public void EnforceArenaBoundary(float radius, string cause = "Walked out of arena")
-        => children.Add(new SimArenaBoundary(Party, ScenarioOrigin, radius, cause, showVfx: !Map.IsInInstance));
+        => children.Add(new SimArenaBoundary(Party, this, radius, cause, showVfx: !Map.IsInInstance));
 
     // Spawns the eight party slots and wires in the local player. Must be called
     // after ScenarioOrigin is set. Party is added first so it despawns last in
@@ -102,7 +121,7 @@ public sealed class SimWorld : ISimObject, IDisposable
         // contexts), enabling row-click targeting and mouseover tooltips
         // there; in the open world we keep them out to avoid the render-cache
         // teardown crash documented in EnmityHud.cs.
-        PartyCreator.Populate(party, new SimPlayer(), playerJob, ScenarioOrigin);
+        PartyCreator.Populate(party, new SimPlayer(), playerJob, this);
         children.Add(party);
         Party = party;
         return party;
@@ -117,7 +136,7 @@ public sealed class SimWorld : ISimObject, IDisposable
         Map.Tick();
         var count = children.Count;
         for (int i = 0; i < count; i++) children[i].Tick(deltaSeconds);
-        enmityHud.Refresh(children.OfType<SimEnemy>());
+        enmityHud.Refresh(children.OfType<SimEnemy>(), deltaSeconds);
         partyHud.Refresh(Party);
     }
 
@@ -132,6 +151,7 @@ public sealed class SimWorld : ISimObject, IDisposable
         Party = SimParty.Empty;
         enmityHud.Clear();
         partyHud.Clear();
+        Markings.ClearAll();
         ScenarioOrigin = default;
     }
 

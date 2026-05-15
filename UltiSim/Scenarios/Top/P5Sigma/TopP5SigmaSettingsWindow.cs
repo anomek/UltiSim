@@ -46,9 +46,9 @@ public sealed class TopP5SigmaSettingsWindow
         ImGui.SameLine();
         if (ImGui.RadioButton("Auto##cf",  v == null))            Overrides.CloseFarTether = null;
         ImGui.SameLine();
-        if (ImGui.RadioButton("Close##cf", v == CloseFar.Close))  Overrides.CloseFarTether = CloseFar.Close;
+        if (ImGui.RadioButton("Close##cf", v == GlitchType.Mid))  Overrides.CloseFarTether = GlitchType.Mid;
         ImGui.SameLine();
-        if (ImGui.RadioButton("Far##cf",   v == CloseFar.Far))    Overrides.CloseFarTether = CloseFar.Far;
+        if (ImGui.RadioButton("Far##cf",   v == GlitchType.Far))    Overrides.CloseFarTether = GlitchType.Far;
     }
 
     private void DrawTowerNorthFlip()
@@ -94,8 +94,8 @@ public sealed class TopP5SigmaSettingsWindow
         ImGui.SameLine();
         if (ImGui.RadioButton("Auto##form",       v == null))                  Overrides.OmegaFForm = null;
         ImGui.SameLine();
-        if (ImGui.RadioButton("Leg blades##form", v == OmegaFForm.LegBlades))  Overrides.OmegaFForm = OmegaFForm.LegBlades;
+        if (ImGui.RadioButton("Leg blades##form", v == OmegaFAttack.Legs))  Overrides.OmegaFForm = OmegaFAttack.Legs;
         ImGui.SameLine();
-        if (ImGui.RadioButton("Staff##form",      v == OmegaFForm.Staff))      Overrides.OmegaFForm = OmegaFForm.Staff;
+        if (ImGui.RadioButton("Staff##form",      v == OmegaFAttack.Staff))      Overrides.OmegaFForm = OmegaFAttack.Staff;
     }
 }

@@ -37,6 +37,7 @@ public static class TopConstants
         public const uint HelloNearWorldJump = 31626;
         public const uint HelloDistantWorld = 33040;
         public const uint HelloDistantWorldJump = 33041;
+        public const uint HelloWorldFail = 31627;             // Helper->self, range-100 wipe fired on any Hello World near/distant fail
     }
 
     public static class StatusId
@@ -44,6 +45,8 @@ public static class TopConstants
         public const ushort QuickeningDynamis = 3444; // 0xD74 — TOP-wide stack buff
         public const ushort VulnerabilityUp = 3366;   // 0xD26 — generic damage-taken-up; canonical TOP debuff for distance-fail / mistake taps
         public const ushort MagicVulnUp1 = 2941;      // 0xB7D — magic-specific vuln, single-stack lethal; used by Delta-specific abilities
+        public const ushort HelloNearWorld = 3442;     // 'Hello, Near World'
+        public const ushort HelloFarWorld = 3443;      // 'Hello, Distant World'
     }
 
     public static class TimelineId

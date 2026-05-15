@@ -19,31 +19,29 @@ internal sealed unsafe class SimArenaBoundary : ISimObject
     private const string RingVfxPath = "vfx/omen/eff/gl_sircle_1109w.avfx";
 
     private readonly SimParty party;
-    private readonly Vector3 center;
     private readonly float radiusSq;
     private readonly string cause;
     private readonly VfxFunctions.StaticVfxStruct* ringVfx;
 
     public bool IsAlive => true;
 
-    internal SimArenaBoundary(SimParty party, Vector3 center, float radius, string cause, bool showVfx = true)
+    internal SimArenaBoundary(SimParty party, SimWorld world, float radius, string cause, bool showVfx = true)
     {
         this.party = party;
-        this.center = center;
         this.radiusSq = radius * radius;
         this.cause = cause;
 
         if (showVfx && Plugin.DataManager.FileExists(RingVfxPath))
-            ringVfx = VfxFunctions.SpawnStaticVfx(RingVfxPath, new Placement(center, 0f), new Vector3(radius / 0.82f, 1f, radius / 0.82f));
+            ringVfx = VfxFunctions.SpawnStaticVfx(RingVfxPath, new Placement(world.ScenarioOrigin, 0f), new Vector3(radius / 0.82f, 1f, radius / 0.82f));
     }
 
     public void Tick(float deltaSeconds)
     {
+        // Member positions are scenario-local; the boundary is centered on local zero.
         foreach (var member in party.ActiveMembers())
         {
-            var dx = member.Position.X - center.X;
-            var dz = member.Position.Z - center.Z;
-            if (dx * dx + dz * dz > radiusSq) member.Die(cause);
+            var p = member.Position;
+            if (p.X * p.X + p.Z * p.Z > radiusSq) member.Die(cause);
         }
     }
 

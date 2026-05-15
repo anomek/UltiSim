@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using UltiSim.Core.SimObjects;
 
@@ -77,6 +78,52 @@ public sealed class CharacterFind<T> where T : IPositioned
         return hits;
     }
 
+    // Members OUTSIDE a centered rectangle. `origin` is the rect's center; the rect
+    // extends `halfLength` along `origin.Rotation` in BOTH directions and `halfWidth`
+    // perpendicular. Note this differs from InsideRect's back-edge-at-origin
+    // convention, deliberately — the natural use case ("outside a safe band crossing
+    // the arena") is centered.
+    public IReadOnlyList<T> OutsideRect(Placement origin, float halfWidth, float halfLength)
+    {
+        var forwardX = MathF.Sin(origin.Rotation);
+        var forwardZ = MathF.Cos(origin.Rotation);
+        var rightX = MathF.Cos(origin.Rotation);
+        var rightZ = -MathF.Sin(origin.Rotation);
+        var hits = new List<T>();
+        foreach (var m in source())
+        {
+            var dx = m.Position.X - origin.Position.X;
+            var dz = m.Position.Z - origin.Position.Z;
+            var fwd  = dx * forwardX + dz * forwardZ;
+            var side = dx * rightX   + dz * rightZ;
+            if (MathF.Abs(fwd) > halfLength || MathF.Abs(side) > halfWidth) hits.Add(m);
+        }
+        return hits;
+    }
+
+    // Plus-shaped AOE centered on `origin`: union of two perpendicular centered
+    // rects. Each arm extends `halfLength` along its axis and `halfWidth`
+    // perpendicular.
+    public IReadOnlyList<T> InsideCross(Placement origin, float halfWidth, float halfLength)
+    {
+        var forwardX = MathF.Sin(origin.Rotation);
+        var forwardZ = MathF.Cos(origin.Rotation);
+        var rightX = MathF.Cos(origin.Rotation);
+        var rightZ = -MathF.Sin(origin.Rotation);
+        var hits = new List<T>();
+        foreach (var m in source())
+        {
+            var dx = m.Position.X - origin.Position.X;
+            var dz = m.Position.Z - origin.Position.Z;
+            var fwd  = dx * forwardX + dz * forwardZ;
+            var side = dx * rightX   + dz * rightZ;
+            var inForwardArm = MathF.Abs(fwd)  <= halfLength && MathF.Abs(side) <= halfWidth;
+            var inSideArm    = MathF.Abs(side) <= halfLength && MathF.Abs(fwd)  <= halfWidth;
+            if (inForwardArm || inSideArm) hits.Add(m);
+        }
+        return hits;
+    }
+
     // The member nearest to `from` on the XZ plane, optionally skipping one.
     public T? Closest(Vector3 from, T? exclude = default)
     {
@@ -91,6 +138,11 @@ public sealed class CharacterFind<T> where T : IPositioned
             if (d < bestDist) { bestDist = d; best = c; }
         }
         return best;
+    }
+    
+    public T? Extreme(Vector3 from, bool closest, T? exclude = default)
+    {
+        return closest ? Closest(from, exclude) : Farest(from, exclude);
     }
 
     // The member farthest from `from` on the XZ plane, optionally skipping one.
@@ -132,6 +184,52 @@ public sealed class CharacterFind<T> where T : IPositioned
     {
         var pool = ClosestN(from, count);
         return pool.Count == 0 ? default : pool[Random.Shared.Next(pool.Count)];
+    }
+
+    // Members hit by an action's AOE, derived from the Action sheet (CastType +
+    // EffectRange + XAxisModifier). source.Position is the caster, source.Rotation
+    // is the caster facing; for rects/cones the effective forward is
+    // source.Rotation + omenRotate (matches SpawnCastOmen). targetLocation is
+    // used for CastType 2 (circle-on-ground) as the AOE center; ignored for
+    // source-anchored shapes. Cone half-angle isn't carried by the sheet — defaults
+    // to 30° (60° wide cone); override per-action if a specific cone needs tighter
+    // bounds.
+    public IReadOnlyList<T> InsideActionAoe(uint actionId, Placement source,
+        Vector3? targetLocation = null, float omenRotate = 0f, float coneHalfAngle = MathF.PI / 6f)
+    {
+        var actionSheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Action>();
+        if (!actionSheet.TryGetRow(actionId, out var action))
+        {
+            Plugin.Log.Warning($"InsideActionAoe: action {actionId} not found");
+            return Array.Empty<T>();
+        }
+        var range = (float)action.EffectRange;
+        if (range <= 0f) return Array.Empty<T>();
+        var halfWidth = action.XAxisModifier > 0 ? action.XAxisModifier * 0.5f : range;
+        var forward = new Placement(source.Position, source.Rotation + omenRotate);
+        return action.CastType switch
+        {
+            2     => InsideCircle(targetLocation ?? source.Position, range),
+            3 or 8 or 13
+                  => InsideCone(forward, coneHalfAngle, range),
+            4 or 12
+                  => InsideRect(forward, halfWidth, range),
+            5     => InsideCircle(source.Position, range),
+            6     => InsideCircle(source.Position, range), // donut — inner radius not in sheet
+            10 or 11
+                  => InsideRect(forward, halfWidth, range)
+                         .Concat(InsideRect(new Placement(source.Position, forward.Rotation + MathF.PI / 2f), halfWidth, range))
+                         .Distinct()
+                         .ToList(),
+            _ =>
+                LogUnknownCastType(actionId, action.CastType),
+        };
+    }
+
+    private static IReadOnlyList<T> LogUnknownCastType(uint actionId, byte castType)
+    {
+        Plugin.Log.Warning($"InsideActionAoe: action {actionId} has unsupported CastType {castType}");
+        return Array.Empty<T>();
     }
 
     // Returns up to `count` members on the intended side of `src`. Right vector
