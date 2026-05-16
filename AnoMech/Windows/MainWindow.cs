@@ -63,7 +63,7 @@ public unsafe class MainWindow : Window, IDisposable
         Flags |= ImGuiWindowFlags.AlwaysAutoResize;
 
         this.plugin = plugin;
-        IsOpen = true;
+        IsOpen = false;
     }
 
     public void Dispose() { }

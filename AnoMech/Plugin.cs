@@ -62,6 +62,9 @@ public sealed class Plugin : IDalamudPlugin
         WindowSystem.AddWindow(ConfigWindow);
         WindowSystem.AddWindow(MainWindow);
 
+        if (Config.OpenSimMenuOnInn && ZoneSession.IsInInn())
+            MainWindow.IsOpen = true;
+
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
             HelpMessage = "Open AnoMech. Subcommands: config, start, reset, leave"
