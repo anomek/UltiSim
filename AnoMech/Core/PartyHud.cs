@@ -133,26 +133,22 @@ internal sealed unsafe class PartyHud : IDisposable
         ClearSnapshots();
         hasLastWritten = false;
 
+        // No snapshot means we never wrote to MainGroup this session, so the
+        // engine's party state is intact — leave it alone. Zeroing here would
+        // wipe the real party on plugin disable when no sim ran (or after a
+        // prior Clear already restored and nulled the snapshot).
+        if (realPartySnapshot is not { } snap) return;
+
         var gm = GroupManager.Instance();
         if (gm == null) { realPartySnapshot = null; return; }
         ref var grp = ref gm->MainGroup;
 
-        if (realPartySnapshot is { } snap)
-        {
-            // Restore real-party state captured at sim start (folded with any
-            // join/leave deltas detected during the run). Our PreRequestedUpdate
-            // / PostRequestedUpdate interceptors early-out once ClearSnapshots
-            // ran above, so the addon's natural update path redraws the rows
-            // from this restored MainGroup on the next frame.
-            RestoreMainGroup(ref grp, snap);
-        }
-        else
-        {
-            grp.MemberCount = 0;
-            grp.PartyLeaderIndex = 0;
-            grp.PartyId = 0;
-            grp.PartyId_2 = 0;
-        }
+        // Restore real-party state captured at sim start (folded with any
+        // join/leave deltas detected during the run). Our PreRequestedUpdate
+        // / PostRequestedUpdate interceptors early-out once ClearSnapshots
+        // ran above, so the addon's natural update path redraws the rows
+        // from this restored MainGroup on the next frame.
+        RestoreMainGroup(ref grp, snap);
         realPartySnapshot = null;
     }
 
